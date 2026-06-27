@@ -9,7 +9,15 @@
 #define GROW_CAPACITY(capacity) ((capacity < INITIAL_CAPACITY) ? INITIAL_CAPACITY : capacity * 2)
 
 
-void *reallocate(void *pointer, size_t oldSize, size_t newSize);
+#define GROW_ARRAY(type, pointer, size) \
+    ((type*)reallocate(pointer, size * sizeof(type)))
+
+
+#define FREE(type, pointer) \
+    ((type*)reallocate(pointer, 0))
+
+
+void *reallocate(void *pointer, size_t size);
 
 
 #endif
