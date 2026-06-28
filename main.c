@@ -56,7 +56,7 @@ void runFile(const char *filePath) {
 
 int main(int argc, char *argv[]) {
     if (argc == 1) {
-        runRepl();
+        runFile("./main.leaf");
     } else if (argc == 2) {
         runFile(argv[1]);
     } else {

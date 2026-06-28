@@ -10,7 +10,7 @@ void initChunk(Chunk *chunk) {
 
 
 void freeChunk(Chunk *chunk) {
-    FREE(uint8_t, chunk->code);
+    FREE(chunk->code);
     initChunk(chunk);
 }
 

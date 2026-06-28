@@ -13,8 +13,8 @@
     ((type*)reallocate(pointer, size * sizeof(type)))
 
 
-#define FREE(type, pointer) \
-    ((type*)reallocate(pointer, 0))
+#define FREE(pointer) \
+    (reallocate(pointer, 0))
 
 
 void *reallocate(void *pointer, size_t size);

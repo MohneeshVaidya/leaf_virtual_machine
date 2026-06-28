@@ -23,6 +23,7 @@ typedef enum TokenType {
     TOKEN_THIS,
     TOKEN_SUPER,
     TOKEN_EXTENDS,
+    TOKEN_NEWLINE,
 
     TOKEN_IDENTIFIER,
     TOKEN_NUMBER,
@@ -61,7 +62,7 @@ typedef enum TokenType {
     TOKEN_LEFT_PAREN,
     TOKEN_RIGHT_PAREN,
     TOKEN_COMMA,
-    TOKEN_SEMI_COLON,
+    TOKEN_SEMICOLON,
     TOKEN_COLON,
     TOKEN_QUESTION,
     TOKEN_DOT,
@@ -75,7 +76,7 @@ typedef enum TokenType {
 typedef struct Token {
     TokenType type;
     const char *start;
-    size_t length;
+    int length;
     int line;
 } Token;
 
