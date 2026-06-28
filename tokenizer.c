@@ -268,7 +268,7 @@ static TokenType tokenType() {
         }
         case 't': {
             if (*(start() + 1) == 'r') return checkKeyword(2, 2, "ue", TOKEN_TRUE);
-            return checkKeyword(1, 2, "his", TOKEN_THIS);
+            return checkKeyword(1, 3, "his", TOKEN_THIS);
         }
         case 'v': return checkKeyword(1, 2, "ar", TOKEN_VAR);
     }
