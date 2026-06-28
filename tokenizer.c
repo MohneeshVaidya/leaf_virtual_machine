@@ -9,7 +9,7 @@
 #include "memory.h"
 
 
-// #define ENABLE_PRINT_TOKENS
+#define ENABLE_PRINT_TOKENS
 
 
 #ifdef ENABLE_PRINT_TOKENS
@@ -121,9 +121,9 @@ static void appendToken(Token token) {
 static void skipWs() {
     for (;;) {
         switch (peek()) {
-            case '\n':
-                appendToken(makeNewlineToken());
-                tokenizer.line++;
+            // case '\n':
+            //     appendToken(makeNewlineToken());
+            //     tokenizer.line++;
             case ' ':
             case '\b':
             case '\r':
@@ -412,8 +412,9 @@ static void scanToken() {
             appendToken(makeToken(TOKEN_DOT));
             break;
         }
-        case '\0': {
-            appendToken(makeToken(TOKEN_EOF));
+        case '\n': {
+            appendToken(makeNewlineToken());
+            tokenizer.line++;
             break;
         }
         default: {
@@ -448,6 +449,8 @@ bool getTokens(const char *source, Tokens *tokens) {
     for (;!isAtEnd();) {
         scanToken();
     }
+    tokenizer.start = current();
+    appendToken(makeToken(TOKEN_EOF));
 
 #ifdef ENABLE_PRINT_TOKENS
     printTokens(tokens);

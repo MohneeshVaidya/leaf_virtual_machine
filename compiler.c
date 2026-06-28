@@ -11,5 +11,6 @@ bool compile(const char *source, Chunk *chunk) {
         return false;
     }
 
+    freeTokens(&tokens);
     return true;
 }
