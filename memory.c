@@ -5,13 +5,13 @@
 #include "memory.h"
 
 
-void *reallocate(void *pointer, size_t size) {
-    if (size == 0) {
+void *reallocate(void *pointer, size_t oldSize, size_t newSize) {
+    if (newSize == 0) {
         free(pointer);
         return NULL;
     }
 
-    void *result = realloc(pointer, size);
+    void *result = realloc(pointer, newSize);
     if (result == NULL) {
         fprintf(stderr, "not able to allocate memory for the program\n");
         exit(1);

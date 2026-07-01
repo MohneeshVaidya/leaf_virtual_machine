@@ -9,7 +9,7 @@
 #include "memory.h"
 
 
-#define ENABLE_PRINT_TOKENS
+// #define ENABLE_PRINT_TOKENS
 
 
 #ifdef ENABLE_PRINT_TOKENS
@@ -98,18 +98,10 @@ static Token makeToken(TokenType type) {
 }
 
 
-static Token makeNewlineToken() {
-    Token token = makeToken(TOKEN_NEWLINE);
-    token.start = "";
-    token.length = 0;
-    return token;
-}
-
-
 static void appendToken(Token token) {
     if (tokens()->count >= tokens()->capacity) {
         size_t capacity = GROW_CAPACITY(tokens()->capacity);
-        tokens()->tokens = GROW_ARRAY(Token, tokens()->tokens, capacity);
+        tokens()->tokens = GROW_ARRAY(Token, tokens()->tokens, tokens()->capacity, capacity);
         tokens()->capacity = capacity;
     }
 
@@ -121,9 +113,8 @@ static void appendToken(Token token) {
 static void skipWs() {
     for (;;) {
         switch (peek()) {
-            // case '\n':
-            //     appendToken(makeNewlineToken());
-            //     tokenizer.line++;
+            case '\n':
+                tokenizer.line++;
             case ' ':
             case '\b':
             case '\r':
@@ -166,6 +157,7 @@ static void skipComments() {
         }
     }
 
+    skipWs();
 #undef FORWARD
 }
 
@@ -412,9 +404,7 @@ static void scanToken() {
             appendToken(makeToken(TOKEN_DOT));
             break;
         }
-        case '\n': {
-            appendToken(makeNewlineToken());
-            tokenizer.line++;
+        case '\0': {
             break;
         }
         default: {
@@ -432,7 +422,7 @@ void initTokens(Tokens *tokens) {
 
 
 void freeTokens(Tokens *tokens) {
-    FREE(tokens->tokens);
+    FREE(Token, tokens->tokens, tokens->capacity);
     initTokens(tokens);
 }
 

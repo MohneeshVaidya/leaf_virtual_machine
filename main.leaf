@@ -1,23 +1,5 @@
-+ - * / % **
-
-= += -= /= *= %= **= ***=
-
-== != < <= > >=
-
-{ ( , ; : ? . ) }
-
-12345.12. // "12345"
-
-print println
-var
-if elseif else
-for continue break
-func return
-struct this super extends init
-true false nil
-or and
-
-userName "hello world, how are you?"
-
-
-forYou struct_ for_this
+100 - 20 - 10;
+100 / 10 / 2;
+2 ** 3 ** 2;
+-2 ** 2;
+true or false and false;
