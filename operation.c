@@ -110,36 +110,6 @@ OperationResult performUnary(Operation operation) {
 }
 
 
-OperationResult performLogical(Operation operation) {
-    OperationResult result = { false, "" };
-
-    Value b = pop();
-    Value a = pop();
-
-    switch (operation) {
-        case OP_AND: {
-            if (!isTruthy(a)) {
-                push(a);
-            } else {
-                push(b);
-            }
-            break;
-        }
-        case OP_OR: {
-            if (isTruthy(a)) {
-                push(a);
-            } else {
-                push(b);
-            }
-            break;
-        }
-        default: break;
-    }
-
-    return result;
-}
-
-
 OperationResult performComparision(Operation operation) {
     OperationResult result = { false, "" };
 

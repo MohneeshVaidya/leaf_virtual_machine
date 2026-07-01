@@ -162,6 +162,8 @@ static Rule rules[];
 static void parsePrecedence(Precedence precedence);
 static void expression();
 static void statement();
+static size_t makeJump();
+static void patchJump(size_t jump);
 
 
 static Rule *getRule(TokenType type) {
@@ -227,8 +229,6 @@ static void binary() {
         case TOKEN_LESSER_EQUAL: return emitByte(OP_LESSER_EQUAL);
         case TOKEN_GREATER: return emitByte(OP_GREATER);
         case TOKEN_GREATER_EQUAL: return emitByte(OP_GREATER_EQUAL);
-        case TOKEN_AND: return emitByte(OP_AND);
-        case TOKEN_OR: return emitByte(OP_OR);
         case TOKEN_COMMA: return emitByte(OP_COMMA);
         default:
             return;
@@ -242,16 +242,61 @@ static void power() {
 }
 
 
+static void and_() {
+    emitByte(OP_JUMP_IF_FALSE);
+    size_t jumpIfFalse = makeJump();
+
+    emitByte(OP_POP);
+    parsePrecedence(PRECEDENCE_AND);
+
+    emitByte(OP_NOP);
+
+    patchJump(jumpIfFalse);
+}
+
+
+static void or_() {
+    emitByte(OP_JUMP_IF_FALSE);
+    size_t jumpIfFalse = makeJump();
+
+    emitByte(OP_JUMP);
+    size_t jumpEnd = makeJump();
+
+    emitByte(OP_POP);
+    patchJump(jumpIfFalse);
+
+    parsePrecedence(PRECEDENCE_OR);
+
+    emitByte(OP_NOP);
+    patchJump(jumpEnd);
+}
+
+
 static void assign() {
 
 }
 
 
 static void ternary() {
+    emitByte(OP_JUMP_IF_FALSE);
+    size_t jumpIfFalse = makeJump();
+
+    emitByte(OP_POP);
+
     expression();
+
+    emitByte(OP_JUMP);
+    size_t jumpEnd = makeJump();
+
     consume(TOKEN_COLON, "expect ':' after first expression in ternary operator");
+
+    emitByte(OP_POP);
+    patchJump(jumpIfFalse);
+
     expression();
-    emitByte(OP_TERNARY);
+
+    emitByte(OP_NOP);
+    patchJump(jumpEnd);
 }
 
 
@@ -343,10 +388,10 @@ static size_t makeJump() {
 }
 
 
-static void patchJump(size_t falseJump) {
-    uint8_t *address = chunk()->code + falseJump;
+static void patchJump(size_t jump) {
+    uint8_t *address = chunk()->code + jump;
 
-    size_t jumpTo = chunk()->count;
+    size_t jumpTo = chunk()->count - 1;
 
     address[0] = (jumpTo >> 8) & 0xff;
     address[1] = jumpTo & 0xff;
@@ -357,20 +402,23 @@ static size_t compileConditionalBlock() {
     expression();
 
     emitByte(OP_JUMP_IF_FALSE);
-    size_t falseJump = makeJump();
+    size_t jumpIfFalse = makeJump();
 
     consume(TOKEN_LEFT_BRACE, "expect '{' after 'if'/'elseif' conditions");
+
+    emitByte(OP_POP);
 
     beginScope();
     blockStatement();
 
     emitByte(OP_JUMP);
-    size_t jump = makeJump();
+    size_t jumpEnd = makeJump();
 
+    emitByte(OP_POP);
     endScope();
 
-    patchJump(falseJump);
-    return jump;
+    patchJump(jumpIfFalse);
+    return jumpEnd;
 }
 
 
@@ -396,6 +444,8 @@ static void ifStatement() {
     if (match(TOKEN_ELSE)) {
         compileElseBlock();
     }
+
+    emitByte(OP_NOP);
 
     for (int i = 0; i < count; i++) {
         patchJump(jumps[i]);
@@ -479,8 +529,8 @@ static Rule rules[] = {
     [TOKEN_SLASH]           = { NULL, binary, PRECEDENCE_FACTOR },
     [TOKEN_PERCENT]         = { NULL, binary, PRECEDENCE_FACTOR },
     [TOKEN_STAR_STAR]       = { NULL, power, PRECEDENCE_POWER },
-    [TOKEN_AND]             = { NULL, binary, PRECEDENCE_AND },
-    [TOKEN_OR]              = { NULL, binary, PRECEDENCE_OR },
+    [TOKEN_AND]             = { NULL, and_, PRECEDENCE_AND },
+    [TOKEN_OR]              = { NULL, or_, PRECEDENCE_OR },
     [TOKEN_BANG]            = { unary, NULL, PRECEDENCE_UNARY },
     [TOKEN_EQUAL]           = { NULL, assign, PRECEDENCE_ASSIGN },
     [TOKEN_PLUS_EQUAL]      = { NULL, assign, PRECEDENCE_ASSIGN },

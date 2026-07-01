@@ -85,11 +85,17 @@ Value pop() {
 }
 
 
-Value top() {
-    if (stackTop() == 0) {
-        runtimeError("stack is empty");
+static Value peek(int index) {
+    int stackIndex = stackTop() - index - 1;
+    if (stackIndex < 0) {
+        runtimeError("can not peek stack at index %d", stackIndex);
     }
-    return stack()[stackTop() - 1];
+    return stack()[stackIndex];
+}
+
+
+Value top() {
+    return peek(0);
 }
 
 
@@ -160,16 +166,7 @@ static void run() {
                 push(value);
                 break;
             }
-            case OP_TERNARY: {
-                Value falseValue = pop();
-                Value truthValue = pop();
-                if (isTruthy(pop())) {
-                    push(truthValue);
-                } else {
-                    push(falseValue);
-                }
-                break;
-            }
+
             case OP_ADD:
             case OP_SUB:
             case OP_MUL:
@@ -179,11 +176,7 @@ static void run() {
                 PERFORM_ARITHMATIC(performBinary, operation);
                 break;
             }
-            case OP_AND:
-            case OP_OR: {
-                performLogical(operation);
-                break;
-            }
+
             case OP_NOT:
             case OP_POS:
             case OP_NEGATE: {
@@ -210,7 +203,7 @@ static void run() {
             }
 
             case OP_JUMP_IF_FALSE: {
-                if (!isTruthy(pop())) {
+                if (!isTruthy(top())) {
                     vm.ip = READ_JUMP_TARGET();
                 } else {
                     vm.ip += 2;

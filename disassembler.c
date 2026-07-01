@@ -44,7 +44,6 @@ size_t disassembleInstruction(size_t offset, Chunk *chunk) {
         case OP_CONSTANT: return constantInstruction("OP_CONSTANT", offset, chunk);
         case OP_POP: return simpleInstruction("OP_POP", offset);
         case OP_COMMA: return simpleInstruction("OP_COMMA", offset);
-        case OP_TERNARY: return simpleInstruction("OP_TERNARY", offset);
         case OP_ADD: return simpleInstruction("OP_ADD", offset);
         case OP_SUB: return simpleInstruction("OP_SUB", offset);
         case OP_MUL: return simpleInstruction("OP_MUL", offset);
@@ -57,8 +56,6 @@ size_t disassembleInstruction(size_t offset, Chunk *chunk) {
         case OP_LESSER_EQUAL:return simpleInstruction("OP_LESSER_EQUAL", offset);
         case OP_GREATER: return simpleInstruction("OP_GREATER", offset);
         case OP_GREATER_EQUAL: return simpleInstruction("OP_GREATER_EQUAL", offset);
-        case OP_AND: return simpleInstruction("OP_AND", offset);
-        case OP_OR: return simpleInstruction("OP_OR", offset);
         case OP_NEGATE: return simpleInstruction("OP_NEGATE", offset);
         case OP_NOT: return simpleInstruction("OP_NOT", offset);
         case OP_POS: return simpleInstruction("OP_POS", offset);

@@ -13,7 +13,6 @@ typedef struct OperationResult {
 
 OperationResult performBinary(Operation operation);
 OperationResult performUnary(Operation operation);
-OperationResult performLogical(Operation operation);
 OperationResult performComparision(Operation operation);
 
 
