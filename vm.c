@@ -21,8 +21,12 @@ VM vm;
 static void initVM() {
     vm.chunk = NULL;
     vm.ip = NULL;
+
+    vm.scope.scopeDepth = 0;
+
     vm.objects = NULL;
     initTable(&vm.strings);
+
     vm.stackTop = 0;
 }
 
@@ -30,14 +34,19 @@ static void initVM() {
 static void freeVM() {
     vm.chunk = NULL;
     vm.ip = NULL;
+
+    vm.scope.scopeDepth = 0;
+
     vm.objects = NULL;
     freeTable(&vm.strings);
+
     vm.stackTop = 0;
 }
 
 
 static Chunk *chunk() { return vm.chunk; }
 static uint8_t *ip() { return vm.ip; }
+static Scope *scope() { return &vm.scope; }
 static Value *stack() { return vm.stack; }
 static int stackTop() { return vm.stackTop; }
 
@@ -50,6 +59,7 @@ static void runtimeError(const char *format, ...) {
 
     fprintf(stderr, "runtime error: [at line %d]: ", line);
     vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
     va_end(args);
 
     longjmp(buf, 1);
@@ -84,15 +94,18 @@ Value top() {
 
 
 static void printAssemblyAndStack(size_t offset) {
+    if (stackTop() == 0) {
+        printf("[]");
+    }
     for (int i = 0; i < stackTop(); i++) {
         printf("[");
         printValue(stack()[i]);
         printf("]");
     }
-    printf("\n\n");
+    printf("\n");
 
     disassembleInstruction(offset, chunk());
-    printf("\n\n");
+    printf("\n");
 
 }
 
@@ -108,6 +121,10 @@ static void run() {
 
 #define READ_OFFSET() \
     (ip() - chunk()->code - 1)
+
+
+#define READ_JUMP_TARGET() \
+    (chunk()->code + (int)(READ_BYTE() << 8 | READ_BYTE()))
 
 
 #define PERFORM_ARITHMATIC(OPERATION, operationTag)          \
@@ -133,6 +150,10 @@ static void run() {
                 push(READ_CONSTANT());
                 break;
             }
+            case OP_POP: {
+                (void)pop();
+                break;
+            }
             case OP_COMMA: {
                 Value value = pop();
                 pop();
@@ -149,49 +170,71 @@ static void run() {
                 }
                 break;
             }
-            case OP_ADD: {
-                PERFORM_ARITHMATIC(performBinary, OP_ADD);
-                break;
-            }
-            case OP_SUB: {
-                PERFORM_ARITHMATIC(performBinary, OP_SUB);
-                break;
-            }
-            case OP_MUL: {
-                PERFORM_ARITHMATIC(performBinary, OP_MUL);
-                break;
-            }
-            case OP_DIV: {
-                PERFORM_ARITHMATIC(performBinary, OP_DIV);
-                break;
-            }
-            case OP_MOD: {
-                PERFORM_ARITHMATIC(performBinary, OP_MOD);
-                break;
-            }
+            case OP_ADD:
+            case OP_SUB:
+            case OP_MUL:
+            case OP_DIV:
+            case OP_MOD:
             case OP_POW: {
-                PERFORM_ARITHMATIC(performBinary, OP_POW);
+                PERFORM_ARITHMATIC(performBinary, operation);
                 break;
             }
-            case OP_AND: {
-                performLogical(OP_AND);
-                break;
-            }
+            case OP_AND:
             case OP_OR: {
-                performLogical(OP_OR);
+                performLogical(operation);
+                break;
+            }
+            case OP_NOT:
+            case OP_POS:
+            case OP_NEGATE: {
+                performUnary(operation);
+                break;
+            }
+            case OP_EQUAL:
+            case OP_NOT_EQUAL:
+            case OP_LESSER:
+            case OP_LESSER_EQUAL:
+            case OP_GREATER:
+            case OP_GREATER_EQUAL:
+                performComparision(operation);
+                break;
+
+            case OP_PRINT: {
+                printValue(pop());
+                break;
+            }
+            case OP_PRINTLN: {
+                printValue(pop());
+                printf("\n");
+                break;
+            }
+
+            case OP_JUMP_IF_FALSE: {
+                if (!isTruthy(pop())) {
+                    vm.ip = READ_JUMP_TARGET();
+                } else {
+                    vm.ip += 2;
+                }
+                break;
+            }
+
+            case OP_JUMP: {
+                vm.ip = READ_JUMP_TARGET();
                 break;
             }
             case OP_EXIT: {
                 return;
             }
-            default: {
-            }
+            default:
+                break;
         }
     }
 
 #undef READ_BYTE
 #undef READ_CONSTANT
 #undef READ_OFFSET
+#undef READ_JUMP_TARGET
+#undef PERFORM_ARITHMATIC
 }
 
 

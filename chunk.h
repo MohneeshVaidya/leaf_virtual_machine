@@ -11,6 +11,7 @@
 
 typedef enum Operation {
     OP_CONSTANT,
+    OP_POP,
     OP_PRINT,
     OP_PRINTLN,
     OP_COMMA,
@@ -30,9 +31,12 @@ typedef enum Operation {
     OP_AND,
     OP_OR,
     OP_NEGATE,
-    OP_NOP,
+    OP_POS,
     OP_NOT,
+    OP_JUMP_IF_FALSE,
+    OP_JUMP,
     OP_RETURN,
+    OP_NOP,
     OP_EXIT,
 } Operation;
 

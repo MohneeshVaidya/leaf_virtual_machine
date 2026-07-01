@@ -128,7 +128,7 @@ static void skipWs() {
 }
 
 
-static void skipComments() {
+static bool skipComments() {
 #define FORWARD(n)  \
     do {                                            \
         for (int i = 0; i < n; i++) { forward(); }  \
@@ -143,6 +143,7 @@ static void skipComments() {
             tokenizer.line++;
             forward();
         }
+        return true;
     }
 
     if (peek() == '/' && peekNext() == '*') {
@@ -155,9 +156,11 @@ static void skipComments() {
             }
             forward();
         }
+        return true;
     }
 
-    skipWs();
+    return false;
+
 #undef FORWARD
 }
 
@@ -278,7 +281,7 @@ static void identifier() {
 
 static void scanToken() {
     skipWs();
-    skipComments();
+    if (skipComments()) return;
 
     tokenizer.start = current();
 

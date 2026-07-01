@@ -22,6 +22,13 @@ static size_t constantInstruction(const char *operation, size_t offset, Chunk *c
 }
 
 
+static size_t jumpInstruction(const char *operation, size_t offset, Chunk *chunk) {
+    size_t jumpTo = (size_t)((chunk->code[offset + 1] << 8) | chunk->code[offset + 2]);
+    printf("%-16s -> %04llu ", operation, jumpTo);
+    return offset + 3;
+}
+
+
 size_t disassembleInstruction(size_t offset, Chunk *chunk) {
     printf("%04llu ", offset);
 
@@ -35,6 +42,7 @@ size_t disassembleInstruction(size_t offset, Chunk *chunk) {
 
     switch (operation) {
         case OP_CONSTANT: return constantInstruction("OP_CONSTANT", offset, chunk);
+        case OP_POP: return simpleInstruction("OP_POP", offset);
         case OP_COMMA: return simpleInstruction("OP_COMMA", offset);
         case OP_TERNARY: return simpleInstruction("OP_TERNARY", offset);
         case OP_ADD: return simpleInstruction("OP_ADD", offset);
@@ -53,6 +61,11 @@ size_t disassembleInstruction(size_t offset, Chunk *chunk) {
         case OP_OR: return simpleInstruction("OP_OR", offset);
         case OP_NEGATE: return simpleInstruction("OP_NEGATE", offset);
         case OP_NOT: return simpleInstruction("OP_NOT", offset);
+        case OP_POS: return simpleInstruction("OP_POS", offset);
+        case OP_PRINT: return simpleInstruction("OP_PRINT", offset);
+        case OP_PRINTLN: return simpleInstruction("OP_PRINTLN", offset);
+        case OP_JUMP_IF_FALSE: return jumpInstruction("OP_JUMP_IF_FALSE", offset, chunk);
+        case OP_JUMP: return jumpInstruction("OP_JUMP", offset, chunk);
         case OP_NOP: return simpleInstruction("OP_NOP", offset);
         case OP_EXIT: return simpleInstruction("OP_EXIT", offset);
         default:

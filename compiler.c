@@ -1,3 +1,5 @@
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +9,7 @@
 #include "chunk.h"
 #include "tokenizer.h"
 #include "value.h"
+#include "vm.h"
 
 
 typedef struct Compiler {
@@ -71,13 +74,18 @@ static Token *forward() {
 }
 
 
-static Token backward() {
-    return *compiler.current--;
+static Token *backward() {
+    if (current() == tokens()) {
+        return NULL;
+    } else if (current() - tokens() > 1) {
+        compiler.previous = current() - 2;
+    }
+    return compiler.current--;
 }
 
 
 static Token *match(TokenType type) {
-    if (current()->type == type) return compiler.current++;
+    if (current()->type == type) return forward();
     return NULL;
 }
 
@@ -153,6 +161,7 @@ static Rule rules[];
 
 static void parsePrecedence(Precedence precedence);
 static void expression();
+static void statement();
 
 
 static Rule *getRule(TokenType type) {
@@ -195,7 +204,7 @@ static void unary() {
     switch (type) {
         case TOKEN_MINUS: return emitByte(OP_NEGATE);
         case TOKEN_BANG: return emitByte(OP_NOT);
-        case TOKEN_PLUS: return emitByte(OP_NOP);
+        case TOKEN_PLUS: return emitByte(OP_POS);
         default:
             return;
     }
@@ -283,17 +292,22 @@ static void expression() {
 
 static void expressionStatement() {
     expression();
-    consume(TOKEN_SEMICOLON, "expected either ';' or newline at the end of statement");
+    consume(TOKEN_SEMICOLON, "expect ';' at the end of statement");
+    emitByte(OP_POP);
 }
 
 
 static void printStatement() {
-
+    expression();
+    consume(TOKEN_SEMICOLON, "expect ';' at the end of statement");
+    emitByte(OP_PRINT);
 }
 
 
 static void printlnStatement() {
-
+    expression();
+    consume(TOKEN_SEMICOLON, "expect ';' at the end of statement");
+    emitByte(OP_PRINTLN);
 }
 
 
@@ -302,8 +316,90 @@ static void varStatement() {
 }
 
 
-static void ifStatement() {
+static void beginScope() {
+    vm.scope.scopeDepth++;
+}
 
+
+static void endScope() {
+    vm.scope.scopeDepth--;
+}
+
+
+static void blockStatement() {
+    for (;!isAtEnd() && !match(TOKEN_RIGHT_BRACE);) {
+        statement();
+    }
+    if (previous()->type != TOKEN_RIGHT_BRACE) {
+        errorAt(current(), "expect '}' to close the block");
+    }
+}
+
+
+static size_t makeJump() {
+    emitByte(0xff);
+    emitByte(0xff);
+    return chunk()->count - 2;
+}
+
+
+static void patchJump(size_t falseJump) {
+    uint8_t *address = chunk()->code + falseJump;
+
+    size_t jumpTo = chunk()->count;
+
+    address[0] = (jumpTo >> 8) & 0xff;
+    address[1] = jumpTo & 0xff;
+}
+
+
+static size_t compileConditionalBlock() {
+    expression();
+
+    emitByte(OP_JUMP_IF_FALSE);
+    size_t falseJump = makeJump();
+
+    consume(TOKEN_LEFT_BRACE, "expect '{' after 'if'/'elseif' conditions");
+
+    beginScope();
+    blockStatement();
+
+    emitByte(OP_JUMP);
+    size_t jump = makeJump();
+
+    endScope();
+
+    patchJump(falseJump);
+    return jump;
+}
+
+
+static void compileElseBlock() {
+    consume(TOKEN_LEFT_BRACE, "expect '{' after 'else' keyword");
+
+    beginScope();
+    blockStatement();
+    endScope();
+}
+
+
+static void ifStatement() {
+    size_t jumps[64];
+    int count = 0;
+
+    jumps[count++] = compileConditionalBlock();
+
+    for (;match(TOKEN_ELSE_IF);) {
+        jumps[count++] = compileConditionalBlock();
+    }
+
+    if (match(TOKEN_ELSE)) {
+        compileElseBlock();
+    }
+
+    for (int i = 0; i < count; i++) {
+        patchJump(jumps[i]);
+    }
 }
 
 
@@ -342,6 +438,12 @@ static void statement() {
         case TOKEN_PRINT: return printStatement();
         case TOKEN_PRINTLN: return printlnStatement();
         case TOKEN_VAR: return varStatement();
+        case TOKEN_LEFT_BRACE: {
+            beginScope();
+            blockStatement();
+            endScope();
+            return;
+        }
         case TOKEN_IF: return ifStatement();
         case TOKEN_FOR: return forStatement();
         case TOKEN_BREAK: return breakStatement();
@@ -353,6 +455,13 @@ static void statement() {
             backward();
             return expressionStatement();
         }
+    }
+}
+
+
+static void statements() {
+    for (;!isAtEnd();) {
+        statement();
     }
 }
 
@@ -409,9 +518,7 @@ bool compile(const char *source, Chunk *chunk) {
 
     initCompiler(tokens.tokens, chunk);
 
-    for (;!isAtEnd();) {
-        statement();
-    }
+    statements();
 
     emitByte(OP_EXIT);
     bool result = !hadErrors();

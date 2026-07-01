@@ -13,9 +13,23 @@ typedef enum InterpretResult {
 } InterpretResult;
 
 
+typedef struct Local {
+    ObjString *name;
+    int depth;
+} Local;
+
+
+typedef struct Scope {
+    Local locals[256];
+    int scopeDepth;
+} Scope;
+
+
 typedef struct VM {
     Chunk *chunk;
     uint8_t *ip;
+
+    Scope scope;
 
     Table strings;
     Obj *objects;
