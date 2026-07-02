@@ -31,7 +31,9 @@ typedef struct VM {
 
     Scope scope;
 
+    Table globals;
     Table strings;
+
     Obj *objects;
 
     Value stack[256];

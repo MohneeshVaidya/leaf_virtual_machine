@@ -8,6 +8,7 @@
 
 #include "compiler.h"
 #include "chunk.h"
+#include "object.h"
 #include "tokenizer.h"
 #include "value.h"
 #include "vm.h"
@@ -95,21 +96,17 @@ static Token *match(TokenType type) {
 }
 
 
-static Token *consume(TokenType type, const char *errorMessage) {
-    if (current()->type == type) {
-        return forward();
+static Token *matchAny(TokenType *types, int length) {
+    for (int i = 0; i < length; i++) {
+        if (types[i] == current()->type) return forward();
     }
-
-    errorAt(previous(), errorMessage);
     return NULL;
 }
 
 
-static Token *consumeAny(TokenType *types, int length, const char *errorMessage) {
-    for (int i = 0; i < length; i++) {
-        if (current()->type == types[i]) {
-            return forward();
-        }
+static Token *consume(TokenType type, const char *errorMessage) {
+    if (current()->type == type) {
+        return forward();
     }
 
     errorAt(previous(), errorMessage);
@@ -176,8 +173,60 @@ static Rule *getRule(TokenType type) {
 }
 
 
-static void identifier() {
+static bool assign(int index) {
+    if (match(TOKEN_EQUAL)) {
+        parsePrecedence(PRECEDENCE_ASSIGN);
+        emitBytes(OP_SET_GLOBAL, index);
+        return true;
+    }
+    if (matchAny((TokenType[]){ TOKEN_PLUS_EQUAL, TOKEN_MINUS_EQUAL, TOKEN_STAR_EQUAL, TOKEN_SLASH_EQUAL, TOKEN_PERCENT_EQUAL, TOKEN_STAR_STAR_EQUAL }, 6)) {
+        Token *token = previous();
 
+        emitBytes(OP_GET_GLOBAL, index);
+        parsePrecedence(PRECEDENCE_ASSIGN);
+
+        switch (token->type) {
+            case TOKEN_PLUS_EQUAL: {
+                emitByte(OP_ADD);
+                break;
+            }
+            case TOKEN_MINUS_EQUAL: {
+                emitByte(OP_SUB);
+                break;
+            }
+            case TOKEN_STAR_EQUAL: {
+                emitByte(OP_MUL);
+                break;
+            }
+            case TOKEN_SLASH_EQUAL: {
+                emitByte(OP_DIV);
+                break;
+            }
+            case TOKEN_PERCENT_EQUAL: {
+                emitByte(OP_MOD);
+                break;
+            }
+            case TOKEN_STAR_STAR_EQUAL: {
+                emitByte(OP_POW);
+                break;
+            }
+            default:
+                break;
+        }
+
+        emitBytes(OP_SET_GLOBAL, index);
+        return true;
+    }
+    return false;
+}
+
+
+static void identifier() {
+    int index = makeConstant(OBJ_VALUE(makeString(previous()->start, previous()->length)));
+
+    if (!assign(index)) {
+        emitBytes(OP_GET_GLOBAL, index);
+    }
 }
 
 
@@ -277,11 +326,6 @@ static void or_() {
 }
 
 
-static void assign() {
-
-}
-
-
 static void ternary() {
     emitByte(OP_JUMP_IF_FALSE);
     size_t jumpIfFalse = makeJump();
@@ -361,8 +405,25 @@ static void printlnStatement() {
 }
 
 
-static void varStatement() {
+static int parseIdentifier() {
+    Token *token = consume(TOKEN_IDENTIFIER, "expect a name for declaration statement");
+    return makeConstant(OBJ_VALUE(makeString(token->start, token->length)));
+}
 
+
+static void varStatement() {
+    int index = parseIdentifier();
+
+
+    if (match(TOKEN_EQUAL)) {
+        expression();
+    } else {
+        emitBytes(OP_CONSTANT, makeConstant(NIL_VALUE));
+    }
+
+    consume(TOKEN_SEMICOLON, "expect ';' after var declaration");
+
+    emitBytes(OP_DECLARE_GLOBAL, index);
 }
 
 
@@ -689,13 +750,13 @@ static Rule rules[] = {
     [TOKEN_AND]             = { NULL, and_, PRECEDENCE_AND },
     [TOKEN_OR]              = { NULL, or_, PRECEDENCE_OR },
     [TOKEN_BANG]            = { unary, NULL, PRECEDENCE_UNARY },
-    [TOKEN_EQUAL]           = { NULL, assign, PRECEDENCE_ASSIGN },
-    [TOKEN_PLUS_EQUAL]      = { NULL, assign, PRECEDENCE_ASSIGN },
-    [TOKEN_MINUS_EQUAL]     = { NULL, assign, PRECEDENCE_ASSIGN },
-    [TOKEN_STAR_EQUAL]      = { NULL, assign, PRECEDENCE_ASSIGN },
-    [TOKEN_SLASH_EQUAL]     = { NULL, assign, PRECEDENCE_ASSIGN },
-    [TOKEN_PERCENT_EQUAL]   = { NULL, assign, PRECEDENCE_ASSIGN },
-    [TOKEN_STAR_STAR_EQUAL] = { NULL, assign, PRECEDENCE_ASSIGN },
+    // [TOKEN_EQUAL]           = { NULL, assign, PRECEDENCE_ASSIGN },
+    // [TOKEN_PLUS_EQUAL]      = { NULL, assign, PRECEDENCE_ASSIGN },
+    // [TOKEN_MINUS_EQUAL]     = { NULL, assign, PRECEDENCE_ASSIGN },
+    // [TOKEN_STAR_EQUAL]      = { NULL, assign, PRECEDENCE_ASSIGN },
+    // [TOKEN_SLASH_EQUAL]     = { NULL, assign, PRECEDENCE_ASSIGN },
+    // [TOKEN_PERCENT_EQUAL]   = { NULL, assign, PRECEDENCE_ASSIGN },
+    // [TOKEN_STAR_STAR_EQUAL] = { NULL, assign, PRECEDENCE_ASSIGN },
     [TOKEN_EQUAL_EQUAL]     = { NULL, binary, PRECEDENCE_EQUALITY },
     [TOKEN_BANG_EQUAL]      = { NULL, binary, PRECEDENCE_EQUALITY },
     [TOKEN_LESSER]          = { NULL, binary, PRECEDENCE_COMPARISON },

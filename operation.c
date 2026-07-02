@@ -59,7 +59,7 @@ OperationResult performBinary(Operation operation) {
         }
         case OP_MOD: {
             if (!CHECK_TYPE(IS_NUMBER)) {
-                setError(&result, "'%' expects both operands to be numbers");
+                setError(&result, "'%%' expects both operands to be numbers");
             } else {
                 push(NUMBER_VALUE(fmod(AS_NUMBER(a), AS_NUMBER(b))));
             }

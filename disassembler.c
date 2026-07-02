@@ -63,6 +63,9 @@ size_t disassembleInstruction(size_t offset, Chunk *chunk) {
         case OP_PRINTLN: return simpleInstruction("OP_PRINTLN", offset);
         case OP_JUMP_IF_FALSE: return jumpInstruction("OP_JUMP_IF_FALSE", offset, chunk);
         case OP_JUMP: return jumpInstruction("OP_JUMP", offset, chunk);
+        case OP_DECLARE_GLOBAL: return constantInstruction("OP_DECLARE_GLOBAL", offset, chunk);
+        case OP_GET_GLOBAL: return constantInstruction("OP_GET_GLOBAL", offset, chunk);
+        case OP_SET_GLOBAL: return constantInstruction("OP_SET_GLOBAL", offset, chunk);
         case OP_NOP: return simpleInstruction("OP_NOP", offset);
         case OP_EXIT: return simpleInstruction("OP_EXIT", offset);
         default:

@@ -7,7 +7,9 @@
 #include "vm.h"
 #include "chunk.h"
 #include "compiler.h"
+#include "object.h"
 #include "operation.h"
+#include "table.h"
 #include "value.h"
 #include "disassembler.h"
 
@@ -25,6 +27,8 @@ static void initVM() {
     vm.scope.scopeDepth = 0;
 
     vm.objects = NULL;
+
+    initTable(&vm.globals);
     initTable(&vm.strings);
 
     vm.stackTop = 0;
@@ -38,6 +42,8 @@ static void freeVM() {
     vm.scope.scopeDepth = 0;
 
     vm.objects = NULL;
+
+    freeTable(&vm.globals);
     freeTable(&vm.strings);
 
     vm.stackTop = 0;
@@ -47,6 +53,7 @@ static void freeVM() {
 static Chunk *chunk() { return vm.chunk; }
 static uint8_t *ip() { return vm.ip; }
 static Scope *scope() { return &vm.scope; }
+static Table *globals() { return &vm.globals; }
 static Value *stack() { return vm.stack; }
 static int stackTop() { return vm.stackTop; }
 
@@ -133,6 +140,10 @@ static void run() {
     (chunk()->code + (int)(READ_BYTE() << 8 | READ_BYTE()))
 
 
+#define READ_NAME() \
+    (AS_STRING(READ_CONSTANT()))
+
+
 #define PERFORM_ARITHMATIC(OPERATION, operationTag)          \
     do {                                                    \
         OperationResult result = OPERATION(operationTag);   \
@@ -215,6 +226,36 @@ static void run() {
                 vm.ip = READ_JUMP_TARGET();
                 break;
             }
+
+            case OP_DECLARE_GLOBAL: {
+                ObjString *name = READ_NAME();
+                if (tableContains(globals(), name)) {
+                    runtimeError("redeclaring '%s' in same scope", name->chars);
+                }
+                tableSet(globals(), name, top());
+                pop();
+                break;
+            }
+
+            case OP_GET_GLOBAL: {
+                ObjString *name = READ_NAME();
+                Value value;
+                if (!tableGet(globals(), name, &value)) {
+                    runtimeError("accessing undeclared name '%s'", name->chars);
+                }
+                push(value);
+                break;
+            }
+
+            case OP_SET_GLOBAL: {
+                ObjString *name = READ_NAME();
+                if (!tableContains(globals(), name)) {
+                    runtimeError("accessing undeclared name '%s'", name->chars);
+                }
+                tableSet(globals(), name, top());
+                break;
+            }
+
             case OP_EXIT: {
                 return;
             }
@@ -227,6 +268,7 @@ static void run() {
 #undef READ_CONSTANT
 #undef READ_OFFSET
 #undef READ_JUMP_TARGET
+#undef READ_NAME
 #undef PERFORM_ARITHMATIC
 }
 
