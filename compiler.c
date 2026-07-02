@@ -130,6 +130,36 @@ static int makeConstant(Value value) {
 }
 
 
+static int addLocal(int index) {
+    ObjString *name = AS_STRING(chunk()->constantPool[index]);
+
+    Scope *scope = &vm.scope;
+
+    for (int i = scope->localCount - 1; (i > -1) && (scope->locals[i].depth == scope->scopeDepth); i-- ) {
+        if (name == scope->locals[i].name) {
+            return -1;
+        }
+    }
+
+    scope->locals[scope->localCount].name = name;
+    scope->locals[scope->localCount].depth = scope->scopeDepth;
+    return scope->localCount++;
+}
+
+
+static int resolveLocal(int index) {
+    ObjString *name = AS_STRING(chunk()->constantPool[index]);
+
+    Scope *scope = &vm.scope;
+    for (int i = scope->localCount - 1; i > -1; i--) {
+        if (name == scope->locals[i].name) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+
 typedef enum Precedence {
     PRECEDENCE_NONE,
     PRECEDENCE_COMMA,
@@ -173,16 +203,16 @@ static Rule *getRule(TokenType type) {
 }
 
 
-static bool assign(int index) {
+static bool assign(int index, Operation opGet, Operation opSet) {
     if (match(TOKEN_EQUAL)) {
         parsePrecedence(PRECEDENCE_ASSIGN);
-        emitBytes(OP_SET_GLOBAL, index);
+        emitBytes(opSet, index);
         return true;
     }
     if (matchAny((TokenType[]){ TOKEN_PLUS_EQUAL, TOKEN_MINUS_EQUAL, TOKEN_STAR_EQUAL, TOKEN_SLASH_EQUAL, TOKEN_PERCENT_EQUAL, TOKEN_STAR_STAR_EQUAL }, 6)) {
         Token *token = previous();
 
-        emitBytes(OP_GET_GLOBAL, index);
+        emitBytes(opGet, index);
         parsePrecedence(PRECEDENCE_ASSIGN);
 
         switch (token->type) {
@@ -214,7 +244,7 @@ static bool assign(int index) {
                 break;
         }
 
-        emitBytes(OP_SET_GLOBAL, index);
+        emitBytes(opSet, index);
         return true;
     }
     return false;
@@ -224,8 +254,21 @@ static bool assign(int index) {
 static void identifier() {
     int index = makeConstant(OBJ_VALUE(makeString(previous()->start, previous()->length)));
 
-    if (!assign(index)) {
-        emitBytes(OP_GET_GLOBAL, index);
+    int localIndex = resolveLocal(index);
+
+    Operation opGet;
+    Operation opSet;
+
+    if (localIndex == -1) {
+        opGet = OP_GET_GLOBAL;
+        opSet = OP_SET_GLOBAL;
+    } else {
+        opGet = OP_GET_LOCAL;
+        opSet = OP_SET_LOCAL;
+    }
+
+    if (!assign(localIndex == -1 ? index : localIndex, opGet, opSet)) {
+        emitBytes(opGet, localIndex == -1 ? index : localIndex);
     }
 }
 
@@ -423,7 +466,15 @@ static void varStatement() {
 
     consume(TOKEN_SEMICOLON, "expect ';' after var declaration");
 
-    emitBytes(OP_DECLARE_GLOBAL, index);
+    Operation operation;
+    if (vm.scope.scopeDepth > 0) {
+        (void)addLocal(index);
+        operation = OP_DECLARE_LOCAL;
+    } else {
+        operation = OP_DECLARE_GLOBAL;
+    }
+
+    emitBytes(operation, index);
 }
 
 
@@ -434,6 +485,13 @@ static void beginScope() {
 
 static void endScope() {
     vm.scope.scopeDepth--;
+
+    Scope *scope = &vm.scope;
+    int localCount = scope->localCount;
+    for (;localCount > 0 && scope->locals[localCount-1].depth > scope->scopeDepth; localCount--) {
+        emitByte(OP_POP);
+    }
+    scope->localCount = localCount;
 }
 
 
@@ -624,6 +682,12 @@ static bool compileForLoop() {
     if (!match(TOKEN_LEFT_BRACE)) {
         jumpToStep = chunk()->count;
         expression();
+        emitByte(OP_POP);
+        if (ifFalseJump && ifTrueJump) {
+            emitByte(OP_JUMP);
+            size_t startJump = makeJump();
+            patchJumpTo(startJump, jumpToStart);
+        }
         consume(TOKEN_LEFT_BRACE, "expect '{' after 'for' step expression");
     }
 

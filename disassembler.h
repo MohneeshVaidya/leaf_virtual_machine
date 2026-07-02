@@ -5,7 +5,7 @@
 #include "chunk.h"
 
 
-#define PRINT_ASSEMBLY
+// #define PRINT_ASSEMBLY
 
 
 void disassemble(Chunk *chunk);

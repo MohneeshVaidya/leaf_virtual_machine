@@ -21,6 +21,7 @@ typedef struct Local {
 
 typedef struct Scope {
     Local locals[256];
+    int localCount;
     int scopeDepth;
 } Scope;
 

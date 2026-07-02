@@ -24,6 +24,7 @@ static void initVM() {
     vm.chunk = NULL;
     vm.ip = NULL;
 
+    vm.scope.localCount = 0;
     vm.scope.scopeDepth = 0;
 
     vm.objects = NULL;
@@ -39,6 +40,7 @@ static void freeVM() {
     vm.chunk = NULL;
     vm.ip = NULL;
 
+    vm.scope.localCount = 0;
     vm.scope.scopeDepth = 0;
 
     vm.objects = NULL;
@@ -253,6 +255,23 @@ static void run() {
                     runtimeError("accessing undeclared name '%s'", name->chars);
                 }
                 tableSet(globals(), name, top());
+                break;
+            }
+
+            case OP_DECLARE_LOCAL: {
+                (void)READ_NAME();
+                break;
+            }
+
+            case OP_GET_LOCAL: {
+                int index = READ_BYTE();
+                push(stack()[index]);
+                break;
+            }
+
+            case OP_SET_LOCAL: {
+                int index = READ_BYTE();
+                stack()[index] = top();
                 break;
             }
 

@@ -3,6 +3,8 @@
 
 #include "disassembler.h"
 #include "chunk.h"
+#include "value.h"
+#include "vm.h"
 
 
 static size_t simpleInstruction(const char *operation, size_t offset) {
@@ -26,6 +28,17 @@ static size_t jumpInstruction(const char *operation, size_t offset, Chunk *chunk
     size_t jumpTo = (size_t)((chunk->code[offset + 1] << 8) | chunk->code[offset + 2]);
     printf("%-16s -> %04llu ", operation, jumpTo);
     return offset + 3;
+}
+
+
+static size_t localInstruction(const char *operation, size_t offset, Chunk *chunk) {
+    int localIndex = chunk->code[offset + 1];
+
+    printf("%-16s %d ", operation, localIndex);
+    printf("'");
+    printValue(OBJ_VALUE(vm.scope.locals[localIndex].name));
+    printf("'");
+    return offset + 2;
 }
 
 
@@ -66,6 +79,9 @@ size_t disassembleInstruction(size_t offset, Chunk *chunk) {
         case OP_DECLARE_GLOBAL: return constantInstruction("OP_DECLARE_GLOBAL", offset, chunk);
         case OP_GET_GLOBAL: return constantInstruction("OP_GET_GLOBAL", offset, chunk);
         case OP_SET_GLOBAL: return constantInstruction("OP_SET_GLOBAL", offset, chunk);
+        case OP_DECLARE_LOCAL: return constantInstruction("OP_DECLARE_LOCAL", offset, chunk);
+        case OP_SET_LOCAL: return localInstruction("OP_SET_LOCAL", offset, chunk);
+        case OP_GET_LOCAL: return localInstruction("OP_GET_LOCAL", offset, chunk);
         case OP_NOP: return simpleInstruction("OP_NOP", offset);
         case OP_EXIT: return simpleInstruction("OP_EXIT", offset);
         default:
