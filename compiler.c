@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -18,6 +19,7 @@ typedef struct Compiler {
     Token *previous;
     Chunk *chunk;
     bool hadErrors;
+    int loopDepth;
 } Compiler;
 
 
@@ -29,6 +31,8 @@ static void initCompiler(Token *tokens, Chunk *chunk) {
     compiler.current = compiler.tokens;
     compiler.previous = NULL;
     compiler.chunk = chunk;
+    compiler.hadErrors = false;
+    compiler.loopDepth = 0;
 }
 
 
@@ -42,6 +46,7 @@ static Token *current() { return compiler.current; }
 static Token *previous() { return compiler.previous; }
 static Chunk *chunk() { return compiler.chunk; }
 static bool hadErrors() { return compiler.hadErrors; }
+static bool loopDepth() { return compiler.loopDepth; }
 
 
 static void errorAt(Token *token, const char *errorMessage) {
@@ -128,9 +133,6 @@ static int makeConstant(Value value) {
 }
 
 
-typedef void (*Function)();
-
-
 typedef enum Precedence {
     PRECEDENCE_NONE,
     PRECEDENCE_COMMA,
@@ -149,6 +151,9 @@ typedef enum Precedence {
 } Precedence;
 
 
+typedef void (*Function)();
+
+
 typedef struct Rule {
     Function prefix;
     Function infix;
@@ -161,7 +166,7 @@ static Rule rules[];
 
 static void parsePrecedence(Precedence precedence);
 static void expression();
-static void statement();
+static void statement(size_t *breakJump, size_t *continueJump);
 static size_t makeJump();
 static void patchJump(size_t jump);
 
@@ -371,9 +376,9 @@ static void endScope() {
 }
 
 
-static void blockStatement() {
+static void blockStatement(size_t *breakJump, size_t *continueJump) {
     for (;!isAtEnd() && !match(TOKEN_RIGHT_BRACE);) {
-        statement();
+        statement(breakJump, continueJump);
     }
     if (previous()->type != TOKEN_RIGHT_BRACE) {
         errorAt(current(), "expect '}' to close the block");
@@ -398,51 +403,58 @@ static void patchJump(size_t jump) {
 }
 
 
-static size_t compileConditionalBlock() {
+static void patchJumpTo(size_t jump, size_t to) {
+    uint8_t *address = chunk()->code + jump;
+    address[0] = (to >> 8) & 0xff;
+    address[1] = to        & 0xff;
+}
+
+
+static size_t compileConditionalBlock(size_t *breakJump, size_t *continueJump) {
     expression();
 
     emitByte(OP_JUMP_IF_FALSE);
-    size_t jumpIfFalse = makeJump();
+    size_t ifFalseJump = makeJump();
 
     consume(TOKEN_LEFT_BRACE, "expect '{' after 'if'/'elseif' conditions");
 
     emitByte(OP_POP);
 
     beginScope();
-    blockStatement();
+    blockStatement(breakJump, continueJump);
 
     emitByte(OP_JUMP);
-    size_t jumpEnd = makeJump();
+    size_t endJump = makeJump();
 
     emitByte(OP_POP);
     endScope();
 
-    patchJump(jumpIfFalse);
-    return jumpEnd;
+    patchJump(ifFalseJump);
+    return endJump;
 }
 
 
-static void compileElseBlock() {
+static void compileElseBlock(size_t *breakJump, size_t *continueJump) {
     consume(TOKEN_LEFT_BRACE, "expect '{' after 'else' keyword");
 
     beginScope();
-    blockStatement();
+    blockStatement(breakJump, continueJump);
     endScope();
 }
 
 
-static void ifStatement() {
+static void ifStatement(size_t *breakJump, size_t *continueJump) {
     size_t jumps[64];
     int count = 0;
 
-    jumps[count++] = compileConditionalBlock();
+    jumps[count++] = compileConditionalBlock(breakJump, continueJump);
 
     for (;match(TOKEN_ELSE_IF);) {
-        jumps[count++] = compileConditionalBlock();
+        jumps[count++] = compileConditionalBlock(breakJump, continueJump);
     }
 
     if (match(TOKEN_ELSE)) {
-        compileElseBlock();
+        compileElseBlock(breakJump, continueJump);
     }
 
     emitByte(OP_NOP);
@@ -453,18 +465,163 @@ static void ifStatement() {
 }
 
 
+static bool compileInfiniteLoop() {
+    if (!match(TOKEN_LEFT_BRACE)) {
+        return false;
+    }
+
+    size_t breakJump = 0;
+    size_t continueJump = 0;
+
+    size_t jumpTo = chunk()->count;
+
+    blockStatement(&breakJump, &continueJump);
+
+    emitByte(OP_JUMP);
+    size_t startJump = makeJump();
+
+    patchJumpTo(startJump, jumpTo);
+    if (continueJump) patchJumpTo(continueJump, jumpTo);
+
+    emitByte(OP_NOP);
+
+    if (breakJump) {
+        patchJump(breakJump);
+    }
+
+    return true;
+}
+
+
+static bool compileWhileLoop() {
+    Token *token = current();
+    for (;token->type != TOKEN_LEFT_BRACE;) {
+        if (token->type == TOKEN_SEMICOLON) return false;
+        if (token->type == TOKEN_EOF) errorAtPrevious("'for' signature is wrong");
+        token++;
+    }
+
+    size_t breakJump = 0;
+    size_t continueJump = 0;
+
+    size_t jumpTo = chunk()->count;
+
+    expression();
+
+    emitByte(OP_JUMP_IF_FALSE);
+    size_t ifFalseJump = makeJump();
+
+    consume(TOKEN_LEFT_BRACE, "expect '{' after 'for' expression in 'while' like signature");
+
+    emitByte(OP_POP);
+
+    blockStatement(&breakJump, &continueJump);
+
+    emitByte(OP_JUMP);
+    size_t startJump = makeJump();
+
+    patchJumpTo(startJump, jumpTo);
+    if (continueJump) patchJumpTo(continueJump, jumpTo);
+
+    emitByte(OP_POP);
+    patchJump(ifFalseJump);
+
+    if (breakJump) {
+        emitByte(OP_NOP);
+        patchJump(breakJump);
+    }
+
+    return true;
+}
+
+
+static bool compileForLoop() {
+    if (!match(TOKEN_SEMICOLON)) {
+        expression();
+        consume(TOKEN_SEMICOLON, "expect ';' after 'for' initializer expression");
+    }
+
+    size_t breakJump = 0;
+    size_t continueJump = 0;
+
+    size_t jumpToStart = chunk()->count;
+    size_t ifFalseJump = 0;
+    size_t ifTrueJump = 0;
+
+    if (!match(TOKEN_SEMICOLON)) {
+        expression();
+        emitByte(OP_JUMP_IF_FALSE);
+        ifFalseJump = makeJump();
+
+        emitByte(OP_JUMP);
+        ifTrueJump = makeJump();
+
+        consume(TOKEN_SEMICOLON, "expect ';' after 'for' condition expression");
+    }
+
+    size_t jumpToStep = 0;
+    if (!match(TOKEN_LEFT_BRACE)) {
+        jumpToStep = chunk()->count;
+        expression();
+        consume(TOKEN_LEFT_BRACE, "expect '{' after 'for' step expression");
+    }
+
+
+    if (ifTrueJump) {
+        emitByte(OP_POP);
+        patchJump(ifTrueJump);
+    }
+
+
+    blockStatement(&breakJump, &continueJump);
+
+    emitByte(OP_JUMP);
+    size_t startJump = makeJump();
+    patchJumpTo(startJump, jumpToStep ? jumpToStep : jumpToStart);
+    if (continueJump) patchJumpTo(continueJump, jumpToStep ? jumpToStep : jumpToStart);
+
+
+    if (ifFalseJump) {
+        emitByte(OP_POP);
+        patchJump(ifFalseJump);
+    }
+
+    if (breakJump) {
+        emitByte(OP_NOP);
+        patchJump(breakJump);
+    }
+
+    return true;
+}
+
+
 static void forStatement() {
+    beginScope();
 
+    compiler.loopDepth++;
+
+    (void)( compileInfiniteLoop() ||
+            compileWhileLoop() ||
+            compileForLoop());
+
+
+    compiler.loopDepth--;
+
+    endScope();
 }
 
 
-static void breakStatement() {
-
+static void breakStatement(size_t *breakJump) {
+    consume(TOKEN_SEMICOLON, "expect ';' after 'break'");
+    emitByte(OP_JUMP);
+    *breakJump = makeJump();
 }
 
 
-static void continueStatement() {
-
+static void continueStatement(size_t *continueJump) {
+    consume(TOKEN_SEMICOLON, "expect ';' after 'continue'");
+    emitByte(OP_JUMP);
+    *continueJump = makeJump();
 }
 
 
@@ -483,21 +640,21 @@ static void structStatement() {
 }
 
 
-static void statement() {
+static void statement(size_t *breakJump, size_t *continueJump) {
     switch (forward()->type) {
         case TOKEN_PRINT: return printStatement();
         case TOKEN_PRINTLN: return printlnStatement();
         case TOKEN_VAR: return varStatement();
         case TOKEN_LEFT_BRACE: {
             beginScope();
-            blockStatement();
+            blockStatement(breakJump, continueJump);
             endScope();
             return;
         }
-        case TOKEN_IF: return ifStatement();
+        case TOKEN_IF: return ifStatement(breakJump, continueJump);
         case TOKEN_FOR: return forStatement();
-        case TOKEN_BREAK: return breakStatement();
-        case TOKEN_CONTINUE: return continueStatement();
+        case TOKEN_BREAK: return breakStatement(breakJump);
+        case TOKEN_CONTINUE: return continueStatement(continueJump);
         case TOKEN_FUNC: return funcStatement();
         case TOKEN_RETURN: return returnStatement();
         case TOKEN_STRUCT: return structStatement();
@@ -511,7 +668,7 @@ static void statement() {
 
 static void statements() {
     for (;!isAtEnd();) {
-        statement();
+        statement(NULL, NULL);
     }
 }
 

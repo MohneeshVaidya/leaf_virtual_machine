@@ -244,6 +244,12 @@ InterpretResult interpret(const char *source) {
     vm.chunk = &chunk;
     vm.ip = vm.chunk->code;
 
+
+#ifdef PRINT_ASSEMBLY
+    disassemble(&chunk);
+#endif
+
+
     InterpretResult result = INTERPRET_OK;
     if (setjmp(buf)) {
         result = INTERPRET_RUNTIME_ERROR;

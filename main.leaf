@@ -1,0 +1,10 @@
+for {
+    println "outer";
+
+    for {
+        println "inner";
+        continue;
+    }
+
+    println "never";
+}
