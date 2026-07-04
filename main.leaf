@@ -1,0 +1,329 @@
+func getCounter() {
+    var count = 0;
+
+    func counter() {
+        count += 1;
+        return count;
+    }
+
+    return counter;
+}
+
+
+var counter1 = getCounter();
+var counter2 = getCounter();
+
+println counter1();
+println counter1();
+println counter1();
+println counter1();
+
+
+println "========== SECOND COUNTER ==========";
+
+println counter2();
+println counter2();
+println counter2();
+println counter2();
+
+
+
+
+
+
+
+
+
+
+
+
+{
+    func add(a, b) {
+        return a+b;
+    }
+
+
+    func sub(a, b) {
+        return a-b;
+    }
+
+
+    func performOperation(operation, a, b) {
+        return operation(a, b);
+    }
+
+
+    println performOperation(add, 10, 11);
+    println performOperation(sub, 10, 11);
+
+
+
+    func getOperation(operator) {
+        if (operator == "+") {
+            return add;
+        }
+        if (operator == "-") {
+            return sub;
+        }
+        else {
+            println "Invalid Operator '" + operator + "'!";
+        }
+    }
+
+    println getOperation("+")(10, 12);
+    println getOperation("-")(10, 12);
+    println getOperation("*");
+}
+
+
+// ============================================================
+// Infinite for loop
+// ============================================================
+
+println "===== Infinite for =====";
+
+for {
+    println "A";
+    break;
+}
+
+println "Done";
+
+
+// ============================================================
+// Infinite loop with continue
+// ============================================================
+
+println "===== Infinite continue =====";
+
+var i = 0;
+
+for {
+    i += 1;
+
+    if i < 3 {
+        continue;
+    }
+
+    println i;
+    break;
+}
+
+println "Done";
+
+
+// ============================================================
+// While-style loop
+// ============================================================
+
+println "===== While =====";
+
+var count = 1;
+
+for count <= 5 {
+    println count;
+    count += 1;
+}
+
+println "Done";
+
+
+// ============================================================
+// While loop with continue
+// ============================================================
+
+println "===== While continue =====";
+
+count = 0;
+
+for count < 5 {
+    count += 1;
+
+    if count == 3 {
+        continue;
+    }
+
+    println count;
+}
+
+println "Done";
+
+
+// ============================================================
+// While loop with break
+// ============================================================
+
+println "===== While break =====";
+
+count = 1;
+
+for true {
+    println count;
+    count += 1;
+
+    if count == 4 {
+        break;
+    }
+}
+
+println "Done";
+
+
+// ============================================================
+// Classic for loop
+// ============================================================
+
+println "===== Classic for =====";
+
+var j;
+
+for j = 1; j <= 5; j += 1 {
+    println j;
+}
+
+println "Done";
+
+
+// ============================================================
+// Classic for with continue
+// ============================================================
+
+println "===== Classic continue =====";
+
+for j = 1; j <= 5; j += 1 {
+    if j == 3 {
+        continue;
+    }
+
+    println j;
+}
+
+println "Done";
+
+
+// ============================================================
+// Classic for with break
+// ============================================================
+
+println "===== Classic break =====";
+
+for j = 1; j <= 10; j += 1 {
+    if j == 6 {
+        break;
+    }
+
+    println j;
+}
+
+println "Done";
+
+
+// ============================================================
+// Nested classic loops
+// ============================================================
+
+println "===== Nested =====";
+
+var x;
+var y;
+
+for x = 1; x <= 2; x += 1 {
+
+    for y = 1; y <= 3; y += 1 {
+        println x * 10 + y;
+    }
+
+}
+
+println "Done";
+
+
+// ============================================================
+// Nested break
+// ============================================================
+
+println "===== Nested break =====";
+
+for x = 1; x <= 2; x += 1 {
+
+    for y = 1; y <= 5; y += 1 {
+
+        if y == 3 {
+            break;
+        }
+
+        println x * 10 + y;
+    }
+
+}
+
+println "Done";
+
+
+// ============================================================
+// Nested continue
+// ============================================================
+
+println "===== Nested continue =====";
+
+for x = 1; x <= 2; x += 1 {
+
+    for y = 1; y <= 5; y += 1 {
+
+        if y == 3 {
+            continue;
+        }
+
+        println x * 10 + y;
+    }
+
+}
+
+println "Done";
+
+
+// ============================================================
+// Expressions in initializer / condition / step
+// ============================================================
+
+println "===== Expressions =====";
+
+for j = 1 + 2; j < 2 * 5; j += 2 {
+    println j;
+}
+
+println "Done";
+
+
+// ============================================================
+// Assignment expression in initializer
+// ============================================================
+
+println "===== Assignment initializer =====";
+
+var a;
+
+for a = 1; a <= 3; a += 1 {
+    println a;
+}
+
+println "Done";
+
+
+// ============================================================
+// Empty body
+// ============================================================
+
+println "===== Empty body =====";
+
+for j = 1; j <= 3; j += 1 {
+}
+
+println "Done";
+
+
+// ============================================================
+// Finished
+// ============================================================
+
+println "===== ALL TESTS PASSED =====";

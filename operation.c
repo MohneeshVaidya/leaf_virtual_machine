@@ -2,7 +2,7 @@
 
 
 #include "operation.h"
-#include "chunk.h"
+#include "object.h"
 #include "value.h"
 #include "vm.h"
 

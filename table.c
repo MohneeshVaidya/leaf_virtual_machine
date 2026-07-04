@@ -26,7 +26,7 @@ void initTable(Table *table) {
 
 void freeTable(Table *table) {
     FREE(Entry, table->entries, table->capacity);
-    initTable(table);
+    table->entries = NULL;
 }
 
 

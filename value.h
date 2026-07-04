@@ -2,7 +2,7 @@
 #define leaf_value_h
 
 
-#include "object.h"
+#include "forward.h"
 
 
 #define NUMBER_VALUE(value)     ((Value){ VALUE_NUMBER, { .number = value } })
@@ -18,35 +18,19 @@
 #define IS_TOMBSTONE(value)     ((value).type == VALUE_TOMBSTONE)
 #define IS_OBJ(value)           ((value).type == VALUE_OBJ)
 #define IS_STRING(value)        (isObjType(value, OBJ_STRING))
+#define IS_FUNCTION(value)      (isObjType(value, OBJ_FUNCTION))
 
 
 #define AS_NUMBER(value)        ((value).as.number)
 #define AS_BOOLEAN(value)       ((value).as.boolean)
 #define AS_OBJ(value)           ((value).as.obj)
 #define AS_STRING(value)        ((ObjString*)AS_OBJ(value))
-
-
-typedef enum ValueType {
-    VALUE_NUMBER,
-    VALUE_BOOLEAN,
-    VALUE_NIL,
-    VALUE_TOMBSTONE,
-    VALUE_OBJ,
-} ValueType;
-
-
-typedef struct Value {
-    ValueType type;
-    union {
-        double number;
-        bool boolean;
-        Obj *obj;
-    } as;
-} Value;
+#define AS_FUNCTION(value)      ((ObjFunction*)AS_OBJ(value))
 
 
 void printValue(Value value);
 bool isTruthy(Value value);
+bool isCallable(Value value);
 
 
 inline static bool isObjType(Value value, ObjType type) {

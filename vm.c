@@ -5,9 +5,8 @@
 
 
 #include "vm.h"
-#include "chunk.h"
 #include "compiler.h"
-#include "object.h"
+#include "forward.h"
 #include "operation.h"
 #include "table.h"
 #include "value.h"
@@ -21,11 +20,8 @@ VM vm;
 
 
 static void initVM() {
-    vm.chunk = NULL;
-    vm.ip = NULL;
-
-    vm.scope.localCount = 0;
-    vm.scope.scopeDepth = 0;
+    // vm.chunk = NULL;
+    // vm.ip = NULL;
 
     vm.objects = NULL;
 
@@ -33,15 +29,13 @@ static void initVM() {
     initTable(&vm.strings);
 
     vm.stackTop = 0;
+    vm.framesTop = 0;
 }
 
 
 static void freeVM() {
-    vm.chunk = NULL;
-    vm.ip = NULL;
-
-    vm.scope.localCount = 0;
-    vm.scope.scopeDepth = 0;
+    // vm.chunk = NULL;
+    // vm.ip = NULL;
 
     vm.objects = NULL;
 
@@ -49,12 +43,45 @@ static void freeVM() {
     freeTable(&vm.strings);
 
     vm.stackTop = 0;
+    vm.framesTop = 0;
 }
 
 
-static Chunk *chunk() { return vm.chunk; }
-static uint8_t *ip() { return vm.ip; }
-static Scope *scope() { return &vm.scope; }
+static void runtimeError(const char *format, ...);
+
+
+static int framesTop() {
+    return vm.framesTop;
+}
+
+
+static CallFrame *topFrame() {
+    return &vm.frames[framesTop()-1];
+}
+
+
+static void pushFrame(ObjFunction *function, Value *stack) {
+    if (framesTop() >= 10240) {
+        runtimeError("frame_stack overflow");
+    }
+    vm.frames[framesTop()].function = function;
+    vm.frames[framesTop()].frameStack = stack;
+    vm.frames[framesTop()].ip = function->chunk.code;
+    vm.framesTop++;
+}
+
+static void popFrame() {
+    if (framesTop() == 0) {
+        runtimeError("frame_stack underflow");
+    }
+    vm.framesTop--;
+}
+
+
+static Chunk *chunk() { return &topFrame()->function->chunk; }
+static uint8_t *ip() { return topFrame()->ip; }
+static Value *frameStack() { return topFrame()->frameStack; }
+
 static Table *globals() { return &vm.globals; }
 static Value *stack() { return vm.stack; }
 static int stackTop() { return vm.stackTop; }
@@ -94,7 +121,7 @@ Value pop() {
 }
 
 
-static Value peek(int index) {
+Value peek(int index) {
     int stackIndex = stackTop() - index - 1;
     if (stackIndex < 0) {
         runtimeError("can not peek stack at index %d", stackIndex);
@@ -119,7 +146,7 @@ static void printAssemblyAndStack(size_t offset) {
     }
     printf("\n");
 
-    disassembleInstruction(offset, chunk());
+    disassembleInstruction(offset, topFrame()->function);
     printf("\n");
 
 }
@@ -127,7 +154,7 @@ static void printAssemblyAndStack(size_t offset) {
 
 static void run() {
 #define READ_BYTE() \
-    (*vm.ip++)
+    (*topFrame()->ip++)
 
 
 #define READ_CONSTANT() \
@@ -159,7 +186,7 @@ static void run() {
         Operation operation = READ_BYTE();
 
 
-#ifdef PRINT_ASSEMBLY
+#ifdef PRINT_PER_INSTRUNCTION_ASSEMBLY
         printAssemblyAndStack(READ_OFFSET());
 #endif
 
@@ -170,7 +197,7 @@ static void run() {
                 break;
             }
             case OP_POP: {
-                (void)pop();
+                pop();
                 break;
             }
             case OP_COMMA: {
@@ -217,28 +244,23 @@ static void run() {
 
             case OP_JUMP_IF_FALSE: {
                 if (!isTruthy(top())) {
-                    vm.ip = READ_JUMP_TARGET();
+                    topFrame()->ip = READ_JUMP_TARGET();
                 } else {
-                    vm.ip += 2;
+                    topFrame()->ip += 2;
                 }
                 break;
             }
-
             case OP_JUMP: {
-                vm.ip = READ_JUMP_TARGET();
+                topFrame()->ip = READ_JUMP_TARGET();
                 break;
             }
 
             case OP_DECLARE_GLOBAL: {
                 ObjString *name = READ_NAME();
-                if (tableContains(globals(), name)) {
-                    runtimeError("redeclaring '%s' in same scope", name->chars);
-                }
                 tableSet(globals(), name, top());
                 pop();
                 break;
             }
-
             case OP_GET_GLOBAL: {
                 ObjString *name = READ_NAME();
                 Value value;
@@ -248,7 +270,6 @@ static void run() {
                 push(value);
                 break;
             }
-
             case OP_SET_GLOBAL: {
                 ObjString *name = READ_NAME();
                 if (!tableContains(globals(), name)) {
@@ -259,19 +280,62 @@ static void run() {
             }
 
             case OP_DECLARE_LOCAL: {
-                (void)READ_NAME();
+                READ_NAME();
                 break;
             }
-
             case OP_GET_LOCAL: {
                 int index = READ_BYTE();
-                push(stack()[index]);
+                push(frameStack()[index]);
+                break;
+            }
+            case OP_SET_LOCAL: {
+                int index = READ_BYTE();
+                frameStack()[index] = top();
+                if (IS_FUNCTION(top())) {
+                    ObjFunction *function = AS_FUNCTION(top());
+                    if (!function->upvaluesFilled) {
+                        function->upvaluesFilled = true;
+                        for (int i = 0; i < 256; i++) {
+                            if (function->upvalues[i].name) {
+                                function->upvalues[i].value = peek(i);
+                            }
+                        }
+                    }
+                }
                 break;
             }
 
-            case OP_SET_LOCAL: {
+            case OP_GET_UPVALUE: {
                 int index = READ_BYTE();
-                stack()[index] = top();
+                push(topFrame()->function->upvalues[index].value);
+                break;
+            }
+            case OP_SET_UPVALUE: {
+                int index = READ_BYTE();
+                topFrame()->function->upvalues[index].value = top();
+                break;
+            }
+
+            case OP_CALL: {
+                int argumentCount = READ_BYTE();
+                Value object = peek(argumentCount);
+                if (IS_FUNCTION(object)) {
+                    ObjFunction *function = AS_FUNCTION(object);
+                    if (function->arity != argumentCount) {
+                        runtimeError("argument count doesn't match the parameter count");
+                    }
+                    pushFrame(function, (stack() + stackTop() - argumentCount));
+                    break;
+                }
+                runtimeError("called expression is not callable");
+                break;
+            }
+
+            case OP_RETURN: {
+                Value returnValue = pop();
+                *(frameStack() - 1) = returnValue;
+                vm.stackTop = frameStack() - stack();
+                popFrame();
                 break;
             }
 
@@ -295,19 +359,15 @@ static void run() {
 InterpretResult interpret(const char *source) {
     initVM();
 
-    Chunk chunk;
-    initChunk(&chunk);
-
-    if (!compile(source, &chunk)) {
+    ObjFunction *function = compile(source);
+    if (!function) {
         return INTERPRET_COMPILE_ERROR;
     }
 
-    vm.chunk = &chunk;
-    vm.ip = vm.chunk->code;
-
+    pushFrame(function, vm.stack);
 
 #ifdef PRINT_ASSEMBLY
-    disassemble(&chunk);
+    disassemble(function);
 #endif
 
 

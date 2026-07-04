@@ -1,59 +1,114 @@
 #include <limits.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 
 #include "compiler.h"
 #include "chunk.h"
+#include "forward.h"
 #include "object.h"
+#include "table.h"
 #include "tokenizer.h"
 #include "value.h"
 #include "vm.h"
 
 
-typedef struct Compiler {
+typedef struct Parser {
     Token *tokens;
     Token *current;
     Token *previous;
-    Chunk *chunk;
+} Parser;
+
+
+struct Local {
+    ObjString *name;
+    int depth;
+};
+
+
+typedef struct Compiler {
+    struct Compiler *enclosing;
+
+    ObjFunction *function;
+
+    Local locals[256];
+    int localCount;
+    int scopeDepth;
+
     bool hadErrors;
     int loopDepth;
+    int functionDepth;
 } Compiler;
 
 
-static Compiler compiler;
+static Parser parser;
+static Compiler *currentCompiler = NULL;
 
 
-static void initCompiler(Token *tokens, Chunk *chunk) {
-    compiler.tokens = tokens;
-    compiler.current = compiler.tokens;
-    compiler.previous = NULL;
-    compiler.chunk = chunk;
-    compiler.hadErrors = false;
-    compiler.loopDepth = 0;
+static void initParser(Token *tokens) {
+    parser.tokens = tokens;
+    parser.current = parser.tokens;
+    parser.previous = NULL;
 }
 
 
-static void freeCompiler() {
-    initCompiler(NULL, NULL);
+static void freeParser() {
+    initParser(NULL);
 }
 
 
-static Token *tokens() { return compiler.tokens; }
-static Token *current() { return compiler.current; }
-static Token *previous() { return compiler.previous; }
-static Chunk *chunk() { return compiler.chunk; }
-static bool hadErrors() { return compiler.hadErrors; }
-static bool loopDepth() { return compiler.loopDepth; }
-
-
-static void errorAt(Token *token, const char *errorMessage) {
-    compiler.hadErrors = true;
-    fprintf(stderr, "compile error: [at line %d], %s\n", token->line, errorMessage);
+static void startCompiler(Compiler *enclosing) {
+    currentCompiler->enclosing = enclosing;
+    currentCompiler->function = makeFunction();
+    currentCompiler->localCount = 0;
+    currentCompiler->scopeDepth = 0;
+    currentCompiler->hadErrors = false;
+    currentCompiler->loopDepth = 0;
+    currentCompiler->functionDepth = 0;
 }
+
+
+static ObjFunction *endCompiler() {
+    return currentCompiler->hadErrors ? NULL : currentCompiler->function;
+}
+
+
+static Token *tokens() { return parser.tokens; }
+static Token *current() { return parser.current; }
+static Token *previous() { return parser.previous; }
+static ObjFunction *function() { return currentCompiler->function; }
+static Chunk *chunk() { return &currentCompiler->function->chunk; }
+static Local *locals() { return currentCompiler->locals; }
+static int localCount() { return currentCompiler->localCount; }
+static int scopeDepth() { return currentCompiler->scopeDepth; }
+static bool hadErrors() { return currentCompiler->hadErrors; }
+static int loopDepth() { return currentCompiler->loopDepth; }
+static int functionDepth() { return currentCompiler->functionDepth; }
+
+
+static void errorAt(Token *token, const char *format, ...) {
+    currentCompiler->hadErrors = true;
+
+    va_list args;
+    va_start(args, format);
+
+    fprintf(stderr, "compile error: [at line %d], ", token->line);
+    vfprintf(stderr, format, args);
+    fprintf(stderr, "\n");
+
+    va_end(args);
+}
+
+
+// static void errorAt(Token *token, const char *errorMessage) {
+//     currentCompiler->hadErrors = true;
+//     fprintf(stderr, "compile error: [at line %d], %s\n", token->line, errorMessage);
+// }
 
 
 static void errorAtCurrent(const char *errorMessage) {
@@ -72,11 +127,11 @@ static bool isAtEnd() {
 
 
 static Token *forward() {
-    compiler.previous = current();
+    parser.previous = current();
 
     if (isAtEnd()) return current();
 
-    return compiler.current++;
+    return parser.current++;
 }
 
 
@@ -84,9 +139,14 @@ static Token *backward() {
     if (current() == tokens()) {
         return NULL;
     } else if (current() - tokens() > 1) {
-        compiler.previous = current() - 2;
+        parser.previous = current() - 2;
     }
-    return compiler.current--;
+    return parser.current--;
+}
+
+
+static bool check(TokenType type) {
+    return current()->type == type;
 }
 
 
@@ -131,32 +191,93 @@ static int makeConstant(Value value) {
 
 
 static int addLocal(int index) {
+    if (localCount() >= 256) {
+        errorAt(previous(), "local's pool overflow");
+        return -1;
+    }
+
     ObjString *name = AS_STRING(chunk()->constantPool[index]);
 
-    Scope *scope = &vm.scope;
-
-    for (int i = scope->localCount - 1; (i > -1) && (scope->locals[i].depth == scope->scopeDepth); i-- ) {
-        if (name == scope->locals[i].name) {
+    for (int i = localCount() - 1; (i > -1) && (locals()[i].depth == scopeDepth()); i-- ) {
+        if (name == locals()[i].name) {
+            errorAt(previous(), "redeclaring '%s' in same scope", name->chars);
             return -1;
         }
     }
 
-    scope->locals[scope->localCount].name = name;
-    scope->locals[scope->localCount].depth = scope->scopeDepth;
-    return scope->localCount++;
+    locals()[localCount()].name = name;
+    locals()[localCount()].depth = scopeDepth();
+    return currentCompiler->localCount++;
 }
 
 
-static int resolveLocal(int index) {
-    ObjString *name = AS_STRING(chunk()->constantPool[index]);
+typedef enum ResolvedType {
+    RESOLVED_LOCAL,
+    RESOLVED_UPVALUE,
+    RESOLVED_GLOBAL,
+} ResolvedType;
 
-    Scope *scope = &vm.scope;
-    for (int i = scope->localCount - 1; i > -1; i--) {
-        if (name == scope->locals[i].name) {
-            return i;
+
+typedef struct ResolvedInformation {
+    ResolvedType type;
+    int index;
+} ResolvedInformation;
+
+
+static void printLocals(Compiler *compiler, int height) {
+    printf("compiler's height: %d - ", height);
+    if (!compiler) {
+        printf("compiler is NULL\n");
+        return;
+    }
+    for (int i = 0; i < compiler->localCount; i++) {
+        printObject((Obj*)compiler->locals[i].name);
+        printf(" , ");
+    }
+    printf("\n");
+}
+
+
+static ResolvedInformation resolveInCompiler(Compiler *compiler, ObjString *name, int index, int distance) {
+    if (compiler == NULL) {
+        return (ResolvedInformation){ RESOLVED_GLOBAL, index };
+    }
+
+    for (int i = compiler->localCount-1; i > -1; i--) {
+        distance++;
+        if (name == compiler->locals[i].name) {
+            function()->upvalues[distance].name = name;
+            return (ResolvedInformation){ RESOLVED_UPVALUE, distance };
         }
     }
-    return -1;
+
+    return resolveInCompiler(compiler->enclosing, name, index, distance);
+}
+
+
+static ResolvedInformation resolveLocal(int index) {
+    ObjString *name = AS_STRING(chunk()->constantPool[index]);
+
+    for (int i = localCount() - 1; i > -1; i--) {
+        if (name == locals()[i].name) {
+            setDebugLocal(chunk(), i, name);
+            return (ResolvedInformation){ RESOLVED_LOCAL, i };
+        }
+    }
+
+    return resolveInCompiler(currentCompiler->enclosing, name, index, 0);
+}
+
+
+static void addGlobal(int index) {
+    ObjString *name = AS_STRING(chunk()->constantPool[index]);
+
+    if (tableContains(&vm.globals, name)) {
+        errorAt(previous(), "redeclaring '%s' in same scope", name->chars);
+        return;
+    }
+
+    tableSet(&vm.globals, name, NIL_VALUE);
 }
 
 
@@ -196,6 +317,7 @@ static void expression();
 static void statement(size_t *breakJump, size_t *continueJump);
 static size_t makeJump();
 static void patchJump(size_t jump);
+static void call();
 
 
 static Rule *getRule(TokenType type) {
@@ -254,21 +376,28 @@ static bool assign(int index, Operation opGet, Operation opSet) {
 static void identifier() {
     int index = makeConstant(OBJ_VALUE(makeString(previous()->start, previous()->length)));
 
-    int localIndex = resolveLocal(index);
+    ResolvedInformation information = resolveLocal(index);
 
     Operation opGet;
     Operation opSet;
 
-    if (localIndex == -1) {
+    if (information.type == RESOLVED_GLOBAL) {
         opGet = OP_GET_GLOBAL;
         opSet = OP_SET_GLOBAL;
-    } else {
+    } else if (information.type == RESOLVED_LOCAL) {
         opGet = OP_GET_LOCAL;
         opSet = OP_SET_LOCAL;
+    } else {
+        printf("\n\n--- upvalues ---: %.*s\n\n", previous()->length, previous()->start);
+        opGet = OP_GET_UPVALUE;
+        opSet = OP_SET_UPVALUE;
     }
+    if (!assign(information.index, opGet, opSet)) {
+        emitBytes(opGet, information.index);
 
-    if (!assign(localIndex == -1 ? index : localIndex, opGet, opSet)) {
-        emitBytes(opGet, localIndex == -1 ? index : localIndex);
+        if (match(TOKEN_LEFT_PAREN)) {
+            call();
+        }
     }
 }
 
@@ -393,7 +522,22 @@ static void ternary() {
 
 
 static void call() {
+    int arity = 0;
+    for (;!isAtEnd() && !check(TOKEN_RIGHT_PAREN);) {
+        parsePrecedence(PRECEDENCE_COMMA + 1);
+        arity++;
+        if (check(TOKEN_RIGHT_PAREN)) {
+            break;
+        }
+        consume(TOKEN_COMMA, "expect ',' between function arguments");
+    }
+    consume(TOKEN_RIGHT_PAREN, "expect ')' after argument list");
 
+    emitBytes(OP_CALL, arity);
+
+    for (;match(TOKEN_LEFT_PAREN);) {
+        call();
+    }
 }
 
 
@@ -467,10 +611,11 @@ static void varStatement() {
     consume(TOKEN_SEMICOLON, "expect ';' after var declaration");
 
     Operation operation;
-    if (vm.scope.scopeDepth > 0) {
-        (void)addLocal(index);
+    if (scopeDepth() > 0) {
+        addLocal(index);
         operation = OP_DECLARE_LOCAL;
     } else {
+        addGlobal(index);
         operation = OP_DECLARE_GLOBAL;
     }
 
@@ -479,19 +624,18 @@ static void varStatement() {
 
 
 static void beginScope() {
-    vm.scope.scopeDepth++;
+    currentCompiler->scopeDepth++;
 }
 
 
 static void endScope() {
-    vm.scope.scopeDepth--;
+    currentCompiler->scopeDepth--;
 
-    Scope *scope = &vm.scope;
-    int localCount = scope->localCount;
-    for (;localCount > 0 && scope->locals[localCount-1].depth > scope->scopeDepth; localCount--) {
+    int i = localCount();
+    for (;i > 0 && locals()[i-1].depth > scopeDepth(); i--) {
         emitByte(OP_POP);
     }
-    scope->localCount = localCount;
+    currentCompiler->localCount = i;
 }
 
 
@@ -506,8 +650,7 @@ static void blockStatement(size_t *breakJump, size_t *continueJump) {
 
 
 static size_t makeJump() {
-    emitByte(0xff);
-    emitByte(0xff);
+    emitBytes(0xff, 0xff);
     return chunk()->count - 2;
 }
 
@@ -541,21 +684,20 @@ static size_t compileConditionalBlock(size_t *breakJump, size_t *continueJump) {
 
     beginScope();
     blockStatement(breakJump, continueJump);
+    endScope();
 
     emitByte(OP_JUMP);
     size_t endJump = makeJump();
 
     emitByte(OP_POP);
-    endScope();
-
     patchJump(ifFalseJump);
+
     return endJump;
 }
 
 
 static void compileElseBlock(size_t *breakJump, size_t *continueJump) {
     consume(TOKEN_LEFT_BRACE, "expect '{' after 'else' keyword");
-
     beginScope();
     blockStatement(breakJump, continueJump);
     endScope();
@@ -563,7 +705,7 @@ static void compileElseBlock(size_t *breakJump, size_t *continueJump) {
 
 
 static void ifStatement(size_t *breakJump, size_t *continueJump) {
-    size_t jumps[64];
+    size_t jumps[1024];
     int count = 0;
 
     jumps[count++] = compileConditionalBlock(breakJump, continueJump);
@@ -658,6 +800,7 @@ static bool compileForLoop() {
     if (!match(TOKEN_SEMICOLON)) {
         expression();
         consume(TOKEN_SEMICOLON, "expect ';' after 'for' initializer expression");
+        emitByte(OP_POP);
     }
 
     size_t breakJump = 0;
@@ -723,20 +866,24 @@ static bool compileForLoop() {
 static void forStatement() {
     beginScope();
 
-    compiler.loopDepth++;
+    currentCompiler->loopDepth++;
 
     (void)( compileInfiniteLoop() ||
             compileWhileLoop() ||
             compileForLoop());
 
 
-    compiler.loopDepth--;
+    currentCompiler->loopDepth--;
 
     endScope();
 }
 
 
 static void breakStatement(size_t *breakJump) {
+    if (loopDepth() == 0) {
+        errorAtPrevious("'break' statement can be used only within the loop context");
+        return;
+    }
     consume(TOKEN_SEMICOLON, "expect ';' after 'break'");
     emitByte(OP_JUMP);
     *breakJump = makeJump();
@@ -744,19 +891,131 @@ static void breakStatement(size_t *breakJump) {
 
 
 static void continueStatement(size_t *continueJump) {
+    if (loopDepth() == 0) {
+        errorAtPrevious("'continue' statement can be used only within the loop context");
+        return;
+    }
     consume(TOKEN_SEMICOLON, "expect ';' after 'continue'");
     emitByte(OP_JUMP);
     *continueJump = makeJump();
 }
 
 
+static void parseParameters() {
+    consume(TOKEN_LEFT_PAREN, "expect '(' after function name");
+
+    for (;!isAtEnd() && !check(TOKEN_RIGHT_PAREN);) {
+        if (function()->arity >= 256) {
+            errorAtPrevious("number of functions parameters can not exceed 256");
+        }
+
+        int index = parseIdentifier();
+        function()->parameters[function()->arity] = AS_STRING(chunk()->constantPool[index]);
+        function()->arity++;
+        addLocal(index);
+        emitBytes(OP_DECLARE_LOCAL, index);
+        if (check(TOKEN_RIGHT_PAREN)) {
+            break;
+        }
+        consume(TOKEN_COMMA, "expect ',' between function parameters");
+    }
+
+    consume(TOKEN_RIGHT_PAREN, "expect ')' after the argument list");
+}
+
+
+static int declareFunction(int index) {
+    emitBytes(OP_CONSTANT, makeConstant(NIL_VALUE));
+
+    int localIndex = -1;
+
+    Operation operation ;
+    if (scopeDepth() > 0) {
+        localIndex = addLocal(index);
+        operation = OP_DECLARE_LOCAL;
+    } else {
+        addGlobal(index);
+        operation = OP_DECLARE_GLOBAL;
+    }
+    emitBytes(operation, index);
+    return localIndex;
+}
+
+
+static void initializeFunction(int index) {
+    Operation operation ;
+    if (scopeDepth() > 0) {
+        operation = OP_SET_LOCAL;
+    } else {
+        operation = OP_SET_GLOBAL;
+    }
+    emitBytes(operation, index);
+    emitByte(OP_POP);
+}
+
+
 static void funcStatement() {
+    int index = parseIdentifier();
+    int localIndex = declareFunction(index);
+
+    ObjString *name = AS_STRING(chunk()->constantPool[index]);
+
+    Compiler *previousCompiler = currentCompiler;
+    Compiler compiler;
+    currentCompiler = &compiler;
+    startCompiler(previousCompiler);
+
+    function()->name = name;
+
+    beginScope();
+
+    parseParameters();
+
+    consume(TOKEN_LEFT_BRACE, "expect '{' after ')' in function declaration");
+
+
+    currentCompiler->functionDepth++;
+    blockStatement(NULL, NULL);
+    currentCompiler->functionDepth--;
+
+    endScope();
+
+    emitBytes(OP_CONSTANT, makeConstant(NIL_VALUE));
+    emitByte(OP_RETURN);
+
+    ObjFunction *function = endCompiler();
+    if (!function) return;
+
+    currentCompiler = currentCompiler->enclosing;
+
+    emitBytes(OP_CONSTANT, makeConstant(OBJ_VALUE(function)));
+
+    initializeFunction(localIndex == -1 ? index : localIndex);
+    // Operation operation ;
+    // if (scopeDepth() > 0) {
+    //     addLocal(index);
+    //     operation = OP_DECLARE_LOCAL;
+    // } else {
+    //     addGlobal(index);
+    //     operation = OP_DECLARE_GLOBAL;
+    // }
+    // emitBytes(operation, index);
 
 }
 
 
 static void returnStatement() {
-
+    if (functionDepth() == 0) {
+        errorAtPrevious("'return' statement can be used only within the function's context");
+        return;
+    }
+    if (check(TOKEN_SEMICOLON)) {
+        emitBytes(OP_CONSTANT, makeConstant(NIL_VALUE));
+    } else {
+        expression();
+    }
+    consume(TOKEN_SEMICOLON, "expect ';' after 'return' statement");
+    emitByte(OP_RETURN);
 }
 
 
@@ -829,9 +1088,9 @@ static Rule rules[] = {
     [TOKEN_GREATER_EQUAL]   = { NULL, binary, PRECEDENCE_COMPARISON },
     [TOKEN_COMMA]           = { NULL, binary, PRECEDENCE_COMMA },
     [TOKEN_QUESTION]        = { NULL, ternary, PRECEDENCE_TERNARY },
-    [TOKEN_LEFT_PAREN]      = { grouping, call, PRECEDENCE_CALL },
+    [TOKEN_LEFT_PAREN]      = { grouping, NULL, PRECEDENCE_CALL },
     [TOKEN_RIGHT_PAREN]     = { NULL, NULL, PRECEDENCE_NONE },
-    [TOKEN_DOT]             = { NULL, call, PRECEDENCE_CALL },
+    // [TOKEN_DOT]             = { NULL, call, PRECEDENCE_CALL },
     [TOKEN_LEFT_BRACE]      = { NULL, NULL, PRECEDENCE_NONE },
     [TOKEN_RIGHT_BRACE]     = { NULL, NULL, PRECEDENCE_NONE },
     [TOKEN_SEMICOLON]       = { NULL, NULL, PRECEDENCE_NONE },
@@ -839,7 +1098,7 @@ static Rule rules[] = {
 };
 
 
-bool compile(const char *source, Chunk *chunk) {
+ObjFunction *compile(const char *source) {
     Tokens tokens;
     initTokens(&tokens);
 
@@ -848,14 +1107,18 @@ bool compile(const char *source, Chunk *chunk) {
         return false;
     }
 
-    initCompiler(tokens.tokens, chunk);
+    initParser(tokens.tokens);
+
+    Compiler compile;
+    currentCompiler = &compile;
+
+    startCompiler(NULL);
 
     statements();
-
     emitByte(OP_EXIT);
     bool result = !hadErrors();
 
-    freeCompiler();
+    freeParser();
     freeTokens(&tokens);
-    return result;
+    return endCompiler();
 }

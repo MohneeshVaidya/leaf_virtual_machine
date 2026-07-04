@@ -4,10 +4,11 @@
 
 
 #include "object.h"
-#include "memory.h"
-#include "table.h"
+#include "chunk.h"
+#include "forward.h"
 #include "value.h"
 #include "vm.h"
+#include "memory.h"
 
 
 #define ALLOCATE_OBJ(type, typeTag) \
@@ -16,6 +17,7 @@
 
 static Obj *allocateObj(ObjType type, size_t bytes) {
     Obj *obj = reallocate(NULL, 0, bytes);
+
     obj->type = type;
     obj->isMarked = false;
     obj->next = vm.objects;
@@ -67,8 +69,22 @@ ObjString *addStrings(ObjString *a, ObjString *b) {
     memcpy(chars, a->chars, a->length);
     memcpy(chars + a->length, b->chars, b->length);
     chars[length] = '\0';
-
     return makeString(chars, length);
+}
+
+
+ObjFunction *makeFunction() {
+    ObjFunction *function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
+
+    function->name = NULL;
+    function->arity = 0;
+    initChunk(&function->chunk);
+    for (int i = 0; i < 256; i++) {
+        function->upvalues[i].name = NULL;
+        function->upvalues[i].value = NIL_VALUE;
+    }
+    function->upvaluesFilled = false;
+    return function;
 }
 
 
@@ -76,7 +92,24 @@ void printObject(Obj *obj) {
     switch (obj->type) {
         case OBJ_STRING: {
             ObjString *string = (ObjString*)obj;
-            printf("\"%.*s\"", (int)string->length, string->chars);
+            printf("%s", string->chars);
+            return;
+        }
+        case OBJ_FUNCTION: {
+            ObjFunction *function = (ObjFunction*)obj;
+            printf("<function %s - %d", function->name->chars, function->arity);
+            if (function->arity > 0) {
+                printf(" - ");
+            }
+            for (int i = 0; i < function->arity; i++) {
+                printObject((Obj*)function->parameters[i]);
+                printf(", ");
+            }
+            if (function->arity == 0) {
+                printf(">");
+            } else {
+                printf("\b\b>");
+            }
             return;
         }
     }

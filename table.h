@@ -5,20 +5,7 @@
 #include <stdbool.h>
 
 
-#include "value.h"
-
-
-typedef struct Entry {
-    ObjString *key;
-    Value value;
-} Entry;
-
-
-typedef struct Table {
-    size_t capacity;
-    size_t count;
-    Entry *entries;
-} Table;
+#include "forward.h"
 
 
 void initTable(Table *table);

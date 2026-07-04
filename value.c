@@ -2,6 +2,7 @@
 
 
 #include "value.h"
+#include "object.h"
 
 
 void printValue(Value value) {
@@ -54,4 +55,9 @@ bool isTruthy(Value value) {
             break;
     }
     return true;
+}
+
+
+bool isCallable(Value value) {
+    return IS_FUNCTION(value);
 }
