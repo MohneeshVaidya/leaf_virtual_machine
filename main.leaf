@@ -1,3 +1,19 @@
+func makeMultiplier(factor) {
+
+    func multiply(x) {
+        return x * factor;
+    }
+
+    return multiply;
+}
+
+var double = makeMultiplier(2);
+var triple = makeMultiplier(3);
+
+println double(10);
+println triple(10);
+println double(21);
+
 /*
 println "===== RECURSIVE FUNCTION =====";
 
@@ -279,7 +295,7 @@ println f();
 
 
 println "\n===== FINISHED =====";
-*/
+
 
 
 func getCounter() {

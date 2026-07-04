@@ -6,7 +6,7 @@
 
 
 // #define PRINT_PER_INSTRUNCTION_ASSEMBLY
-// #define PRINT_ASSEMBLY
+#define PRINT_ASSEMBLY
 
 
 void disassemble(ObjClosure *closure);
