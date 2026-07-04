@@ -8,7 +8,7 @@
 #include "chunk.h"
 
 
-ObjFunction *compile(const char *source);
+ObjClosure *compile(const char *source);
 
 
 #endif

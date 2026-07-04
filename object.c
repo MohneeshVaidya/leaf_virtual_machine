@@ -79,12 +79,37 @@ ObjFunction *makeFunction() {
     function->name = NULL;
     function->arity = 0;
     initChunk(&function->chunk);
-    for (int i = 0; i < 256; i++) {
-        function->upvalues[i].name = NULL;
-        function->upvalues[i].value = NIL_VALUE;
-    }
-    function->upvaluesFilled = false;
     return function;
+}
+
+
+ObjClosure *makeClosure() {
+    ObjClosure *closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+
+    closure->meta.isMarked = true;
+    closure->function = makeFunction();
+    closure->meta.isMarked = false;
+
+    closure->upvalueCount = 0;
+    for (int i = 0; i < 256; i++) {
+        closure->upvalues[i].name = NULL;
+        closure->upvalues[i].value = NIL_VALUE;
+        closure->upvalues[i].height = -1;
+        closure->upvalues[i].index = -1;
+    }
+    return closure;
+}
+
+
+ObjClosure *cloneClosure(ObjClosure *source) {
+    ObjClosure *closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+
+    closure->function = source->function;
+    closure->upvalueCount = source->upvalueCount;
+    for (int i = 0; i < 256; i++) {
+        closure->upvalues[i] = source->upvalues[i];
+    }
+    return closure;
 }
 
 
@@ -110,6 +135,22 @@ void printObject(Obj *obj) {
             } else {
                 printf("\b\b>");
             }
+            return;
+        }
+        case OBJ_CLOSURE: {
+            ObjClosure *closure = (ObjClosure*)obj;
+            printf("<closure - ");
+            printObject((Obj*)closure->function);
+            printf(", up-values: [");
+            bool areUpvalues = false;
+            for (int i = 0; i < 256; i++) {
+                if (closure->upvalues[i].name) {
+                    areUpvalues = true;
+                    printf("\"%s\", ", closure->upvalues[i].name->chars);
+                }
+            }
+            printf("%s", areUpvalues ? "\b\b]" : "]");
+            printf(">");
             return;
         }
     }

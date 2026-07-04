@@ -20,6 +20,7 @@ typedef struct Chunk Chunk;
 typedef struct Entry Entry;
 typedef struct Table Table;
 typedef struct ObjFunction ObjFunction;
+typedef struct ObjClosure ObjClosure;
 
 typedef struct CallFrame CallFrame;
 
@@ -57,6 +58,7 @@ typedef enum Operation {
     OP_GET_LOCAL,
     OP_SET_UPVALUE,
     OP_GET_UPVALUE,
+    OP_CLONE_CLOSURE,
     OP_CALL,
     OP_RETURN,
     OP_NOP,
@@ -116,6 +118,7 @@ struct Entry {
 typedef enum ObjType {
     OBJ_STRING,
     OBJ_FUNCTION,
+    OBJ_CLOSURE,
 } ObjType;
 
 
@@ -137,6 +140,8 @@ struct ObjString {
 struct UpValue {
     ObjString *name;
     Value value;
+    int height;
+    int index;
 };
 
 
@@ -146,22 +151,25 @@ struct ObjFunction {
     int arity;
     ObjString *parameters[256];
     Chunk chunk;
+};
+
+
+struct ObjClosure {
+    Obj meta;
+    ObjFunction *function;
     UpValue upvalues[256];
-    bool upvaluesFilled;
+    int upvalueCount;
 };
 
 
 struct CallFrame {
-    ObjFunction *function;
+    ObjClosure *closure;
     uint8_t *ip;
     Value *frameStack;
 };
 
 
 struct VM {
-    // Chunk *chunk;
-    // uint8_t *ip;
-
     Table globals;
     Table strings;
 

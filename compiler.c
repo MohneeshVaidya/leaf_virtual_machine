@@ -33,13 +33,10 @@ struct Local {
 
 typedef struct Compiler {
     struct Compiler *enclosing;
-
-    ObjFunction *function;
-
+    ObjClosure *closure;
     Local locals[256];
     int localCount;
     int scopeDepth;
-
     bool hadErrors;
     int loopDepth;
     int functionDepth;
@@ -64,7 +61,7 @@ static void freeParser() {
 
 static void startCompiler(Compiler *enclosing) {
     currentCompiler->enclosing = enclosing;
-    currentCompiler->function = makeFunction();
+    currentCompiler->closure = makeClosure();
     currentCompiler->localCount = 0;
     currentCompiler->scopeDepth = 0;
     currentCompiler->hadErrors = false;
@@ -73,16 +70,16 @@ static void startCompiler(Compiler *enclosing) {
 }
 
 
-static ObjFunction *endCompiler() {
-    return currentCompiler->hadErrors ? NULL : currentCompiler->function;
+static ObjClosure *endCompiler() {
+    return currentCompiler->hadErrors ? NULL : currentCompiler->closure;
 }
 
 
 static Token *tokens() { return parser.tokens; }
 static Token *current() { return parser.current; }
 static Token *previous() { return parser.previous; }
-static ObjFunction *function() { return currentCompiler->function; }
-static Chunk *chunk() { return &currentCompiler->function->chunk; }
+static ObjClosure *closure() { return currentCompiler->closure; }
+static Chunk *chunk() { return &closure()->function->chunk; }
 static Local *locals() { return currentCompiler->locals; }
 static int localCount() { return currentCompiler->localCount; }
 static int scopeDepth() { return currentCompiler->scopeDepth; }
@@ -238,20 +235,35 @@ static void printLocals(Compiler *compiler, int height) {
 }
 
 
-static ResolvedInformation resolveInCompiler(Compiler *compiler, ObjString *name, int index, int distance) {
+static int addUpvalue(ObjClosure *closure, ObjString *name, int height, int index) {
+    int length = closure->upvalueCount;
+    UpValue *upvalues = closure->upvalues;
+
+    for (int i = 0; i < length; i++) {
+        if (upvalues->name == name) {
+            return i;
+        }
+    }
+
+    upvalues[length].name = name;
+    upvalues[length].height = height;
+    upvalues[length].index = index;
+    return closure->upvalueCount++;
+}
+
+
+static ResolvedInformation resolveInCompiler(Compiler *compiler, ObjString *name, int index, int height) {
     if (compiler == NULL) {
         return (ResolvedInformation){ RESOLVED_GLOBAL, index };
     }
 
-    for (int i = compiler->localCount-1; i > -1; i--) {
-        distance++;
+    for (int i = compiler->localCount - 1; i > -1; i--) {
         if (name == compiler->locals[i].name) {
-            function()->upvalues[distance].name = name;
-            return (ResolvedInformation){ RESOLVED_UPVALUE, distance };
+            return (ResolvedInformation){ RESOLVED_UPVALUE, addUpvalue(closure(), name, height, i) };
         }
     }
 
-    return resolveInCompiler(compiler->enclosing, name, index, distance);
+    return resolveInCompiler(compiler->enclosing, name, index, height + 1);
 }
 
 
@@ -261,7 +273,7 @@ static ResolvedInformation resolveLocal(int index) {
     for (int i = localCount() - 1; i > -1; i--) {
         if (name == locals()[i].name) {
             setDebugLocal(chunk(), i, name);
-            return (ResolvedInformation){ RESOLVED_LOCAL, i };
+            return (ResolvedInformation){ RESOLVED_LOCAL, i  };
         }
     }
 
@@ -388,7 +400,6 @@ static void identifier() {
         opGet = OP_GET_LOCAL;
         opSet = OP_SET_LOCAL;
     } else {
-        printf("\n\n--- upvalues ---: %.*s\n\n", previous()->length, previous()->start);
         opGet = OP_GET_UPVALUE;
         opSet = OP_SET_UPVALUE;
     }
@@ -905,13 +916,13 @@ static void parseParameters() {
     consume(TOKEN_LEFT_PAREN, "expect '(' after function name");
 
     for (;!isAtEnd() && !check(TOKEN_RIGHT_PAREN);) {
-        if (function()->arity >= 256) {
+        if (closure()->function->arity >= 256) {
             errorAtPrevious("number of functions parameters can not exceed 256");
         }
 
         int index = parseIdentifier();
-        function()->parameters[function()->arity] = AS_STRING(chunk()->constantPool[index]);
-        function()->arity++;
+        closure()->function->parameters[closure()->function->arity] = AS_STRING(chunk()->constantPool[index]);
+        closure()->function->arity++;
         addLocal(index);
         emitBytes(OP_DECLARE_LOCAL, index);
         if (check(TOKEN_RIGHT_PAREN)) {
@@ -943,14 +954,13 @@ static int declareFunction(int index) {
 
 
 static void initializeFunction(int index) {
-    Operation operation ;
     if (scopeDepth() > 0) {
-        operation = OP_SET_LOCAL;
+        emitBytes(OP_CLONE_CLOSURE, index);
+        emitByte(OP_POP);
     } else {
-        operation = OP_SET_GLOBAL;
+        emitBytes(OP_SET_GLOBAL, index);
+        emitByte(OP_POP);
     }
-    emitBytes(operation, index);
-    emitByte(OP_POP);
 }
 
 
@@ -965,7 +975,7 @@ static void funcStatement() {
     currentCompiler = &compiler;
     startCompiler(previousCompiler);
 
-    function()->name = name;
+    closure()->function->name = name;
 
     beginScope();
 
@@ -983,12 +993,12 @@ static void funcStatement() {
     emitBytes(OP_CONSTANT, makeConstant(NIL_VALUE));
     emitByte(OP_RETURN);
 
-    ObjFunction *function = endCompiler();
-    if (!function) return;
+    ObjClosure *closure = endCompiler();
+    if (!closure) return;
 
     currentCompiler = currentCompiler->enclosing;
 
-    emitBytes(OP_CONSTANT, makeConstant(OBJ_VALUE(function)));
+    emitBytes(OP_CONSTANT, makeConstant(OBJ_VALUE(closure)));
 
     initializeFunction(localIndex == -1 ? index : localIndex);
     // Operation operation ;
@@ -1098,7 +1108,7 @@ static Rule rules[] = {
 };
 
 
-ObjFunction *compile(const char *source) {
+ObjClosure *compile(const char *source) {
     Tokens tokens;
     initTokens(&tokens);
 

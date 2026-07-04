@@ -7,6 +7,7 @@
 #include "vm.h"
 #include "compiler.h"
 #include "forward.h"
+#include "object.h"
 #include "operation.h"
 #include "table.h"
 #include "value.h"
@@ -55,18 +56,27 @@ static int framesTop() {
 }
 
 
-static CallFrame *topFrame() {
-    return &vm.frames[framesTop()-1];
+static CallFrame *peekFrame(int index) {
+    int peekIndex = framesTop() - 1 - index;
+    if (peekIndex < 0) {
+        runtimeError("trying to access frame at frameIndex '%d'", peekIndex);
+    }
+    return &vm.frames[peekIndex];
 }
 
 
-static void pushFrame(ObjFunction *function, Value *stack) {
+static CallFrame *topFrame() {
+    return peekFrame(0);
+}
+
+
+static void pushFrame(ObjClosure *closure, Value *stack) {
     if (framesTop() >= 10240) {
         runtimeError("frame_stack overflow");
     }
-    vm.frames[framesTop()].function = function;
+    vm.frames[framesTop()].closure = closure;
     vm.frames[framesTop()].frameStack = stack;
-    vm.frames[framesTop()].ip = function->chunk.code;
+    vm.frames[framesTop()].ip = closure->function->chunk.code;
     vm.framesTop++;
 }
 
@@ -78,7 +88,7 @@ static void popFrame() {
 }
 
 
-static Chunk *chunk() { return &topFrame()->function->chunk; }
+static Chunk *chunk() { return &topFrame()->closure->function->chunk; }
 static uint8_t *ip() { return topFrame()->ip; }
 static Value *frameStack() { return topFrame()->frameStack; }
 
@@ -146,7 +156,7 @@ static void printAssemblyAndStack(size_t offset) {
     }
     printf("\n");
 
-    disassembleInstruction(offset, topFrame()->function);
+    disassembleInstruction(offset, topFrame()->closure);
     printf("\n");
 
 }
@@ -291,40 +301,42 @@ static void run() {
             case OP_SET_LOCAL: {
                 int index = READ_BYTE();
                 frameStack()[index] = top();
-                if (IS_FUNCTION(top())) {
-                    ObjFunction *function = AS_FUNCTION(top());
-                    if (!function->upvaluesFilled) {
-                        function->upvaluesFilled = true;
-                        for (int i = 0; i < 256; i++) {
-                            if (function->upvalues[i].name) {
-                                function->upvalues[i].value = peek(i);
-                            }
-                        }
-                    }
+                break;
+            }
+
+
+            case OP_CLONE_CLOSURE: {
+                int index = READ_BYTE();
+                ObjClosure *closure =  cloneClosure(AS_CLOSURE(top()));
+                frameStack()[index] = OBJ_VALUE(closure);
+                for (int i = 0; i < closure->upvalueCount; i++) {
+                    UpValue *upvalue = &closure->upvalues[i];
+                    CallFrame *frame = peekFrame(upvalue->height);
+                    upvalue->value = frame->frameStack[upvalue->index];
                 }
                 break;
             }
 
             case OP_GET_UPVALUE: {
                 int index = READ_BYTE();
-                push(topFrame()->function->upvalues[index].value);
+                push(topFrame()->closure->upvalues[index].value);
                 break;
             }
             case OP_SET_UPVALUE: {
                 int index = READ_BYTE();
-                topFrame()->function->upvalues[index].value = top();
+                topFrame()->closure->upvalues[index].value = top();
                 break;
             }
 
             case OP_CALL: {
                 int argumentCount = READ_BYTE();
                 Value object = peek(argumentCount);
-                if (IS_FUNCTION(object)) {
-                    ObjFunction *function = AS_FUNCTION(object);
-                    if (function->arity != argumentCount) {
+                if (IS_CLOSURE(object)) {
+                    ObjClosure *closure = AS_CLOSURE(object);
+                    if (closure->function->arity != argumentCount) {
                         runtimeError("argument count doesn't match the parameter count");
                     }
-                    pushFrame(function, (stack() + stackTop() - argumentCount));
+                    pushFrame(closure, (stack() + stackTop() - argumentCount));
                     break;
                 }
                 runtimeError("called expression is not callable");
@@ -359,15 +371,15 @@ static void run() {
 InterpretResult interpret(const char *source) {
     initVM();
 
-    ObjFunction *function = compile(source);
-    if (!function) {
+    ObjClosure *closure = compile(source);
+    if (!closure) {
         return INTERPRET_COMPILE_ERROR;
     }
 
-    pushFrame(function, vm.stack);
+    pushFrame(closure, vm.stack);
 
 #ifdef PRINT_ASSEMBLY
-    disassemble(function);
+    disassemble(closure);
 #endif
 
 

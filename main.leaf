@@ -1,3 +1,287 @@
+/*
+println "===== RECURSIVE FUNCTION =====";
+
+func fact(n) {
+    if (n <= 1) {
+        return 1;
+    }
+
+    return n * fact(n - 1);
+}
+
+println fact(5);
+
+
+
+println "\n===== RECURSIVE CLOSURE =====";
+
+func makeRecursive() {
+    func f(n) {
+        if (n == 0) {
+            return 0;
+        }
+
+        return f(n - 1);
+    }
+
+    return f;
+}
+
+println makeRecursive()(5);
+
+
+
+println "\n===== MULTIPLE CAPTURED VARIABLES =====";
+
+func makeAdder() {
+    var a = 10;
+    var b = 20;
+
+    func add() {
+        return a + b;
+    }
+
+    return add;
+}
+
+println makeAdder()();
+
+
+
+println "\n===== NESTED CLOSURES =====";
+
+func outer() {
+    var x = 10;
+
+    func middle() {
+        var y = 20;
+
+        func inner() {
+            return x + y;
+        }
+
+        return inner;
+    }
+
+    return middle();
+}
+
+println outer()();
+
+println "\n===== INDEPENDENT COUNTERS =====";
+
+func makeCounter() {
+    var count = 0;
+
+    func counter() {
+        count += 1;
+        return count;
+    }
+
+    return counter;
+}
+
+var c1 = makeCounter();
+var c2 = makeCounter();
+
+println c1();
+println c1();
+println c1();
+
+println c2();
+println c2();
+
+println c1();
+
+
+println "\n===== CLOSURE ASSIGNMENT =====";
+
+var copy = c1;
+
+println copy();
+println c1();
+
+
+
+println "\n===== RETURN FUNCTION FROM FUNCTION =====";
+
+func add(a, b) {
+    return a + b;
+}
+
+func sub(a, b) {
+    return a - b;
+}
+
+func getOperation(op) {
+    if (op == "+") {
+        return add;
+    }
+
+    if (op == "-") {
+        return sub;
+    }
+
+    return nil;
+}
+
+println getOperation("+")(5, 3);
+println getOperation("-")(5, 3);
+
+
+
+println "\n===== PASS FUNCTION AS ARGUMENT =====";
+
+func perform(operation, a, b) {
+    return operation(a, b);
+}
+
+println perform(add, 100, 25);
+println perform(sub, 100, 25);
+
+
+
+println "\n===== LOCAL FUNCTIONS =====";
+
+{
+    func mul(a, b) {
+        return a * b;
+    }
+
+    func div(a, b) {
+        return a / b;
+    }
+
+    func apply(op, a, b) {
+        return op(a, b);
+    }
+
+    println apply(mul, 6, 7);
+    println apply(div, 42, 6);
+
+    func choose(op) {
+        if (op == "*") {
+            return mul;
+        }
+
+        if (op == "/") {
+            return div;
+        }
+
+        return nil;
+    }
+
+    println choose("*")(8, 9);
+    println choose("/")(81, 9);
+}
+
+println "\n===== LOCAL CLOSURE CAPTURE =====";
+
+{
+    var x = 100;
+
+    func getter() {
+        return x;
+    }
+
+    println getter();
+}
+
+
+
+println "\n===== MULTIPLE CLOSURES SAME SCOPE =====";
+
+func makeFunctions() {
+    var x = 1;
+
+    func inc() {
+        x += 1;
+        return x;
+    }
+
+    func get() {
+        return x;
+    }
+
+    println inc();
+    println get();
+    println inc();
+    println get();
+
+    return get;
+}
+
+var getter = makeFunctions();
+
+println getter();
+
+
+
+println "\n===== THREE LEVEL CLOSURE =====";
+
+func level1() {
+    var a = 1;
+
+    func level2() {
+        var b = 2;
+
+        func level3() {
+            var c = 3;
+            return a + b + c;
+        }
+
+        return level3;
+    }
+
+    return level2();
+}
+
+println level1()();
+
+
+
+println "\n===== CLOSURE INSIDE LOOP-LIKE REPEATED CALLS =====";
+
+var counter = makeCounter();
+
+println counter();
+println counter();
+println counter();
+println counter();
+println counter();
+
+
+
+println "\n===== FUNCTION VALUE COPYING =====";
+
+var op = add;
+var another = op;
+
+println another(7, 8);
+
+
+
+println "\n===== NESTED RETURNED FUNCTION =====";
+
+func outerFunc() {
+    var value = 123;
+
+    func innerFunc() {
+        return value;
+    }
+
+    return innerFunc;
+}
+
+var f = outerFunc();
+println f();
+
+
+
+println "\n===== FINISHED =====";
+*/
+
+
 func getCounter() {
     var count = 0;
 
@@ -30,9 +314,41 @@ println counter2();
 
 
 
+func add(a, b) {
+        return a+b;
+    }
+
+
+    func sub(a, b) {
+        return a-b;
+    }
+
+
+    func performOperation(operation, a, b) {
+        return operation(a, b);
+    }
+
+
+    println performOperation(add, 10, 11);
+    println performOperation(sub, 10, 11);
 
 
 
+    func getOperation(operator) {
+        if (operator == "+") {
+            return add;
+        }
+        if (operator == "-") {
+            return sub;
+        }
+        else {
+            println "Invalid Operator '" + operator + "'!";
+        }
+    }
+
+    println getOperation("+")(10, 12);
+    println getOperation("-")(10, 12);
+    println getOperation("*");
 
 
 
@@ -74,6 +390,8 @@ println counter2();
     println getOperation("-")(10, 12);
     println getOperation("*");
 }
+
+
 
 
 // ============================================================

@@ -12,6 +12,8 @@
 ObjString *makeString(const char *chars, size_t length);
 ObjString *addStrings(ObjString *a, ObjString *b);
 ObjFunction *makeFunction();
+ObjClosure *makeClosure();
+ObjClosure *cloneClosure(ObjClosure *closure);
 void printObject(Obj *obj);
 
 
